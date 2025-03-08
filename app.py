@@ -125,13 +125,18 @@ def store_group_members(group_id):
         with sqlite3.connect(DB_PATH) as conn:
             c = conn.cursor()
             for member_id in members:
-                profile = line_bot_api.get_group_member_profile(group_id, member_id)
+                try:
+                    profile = line_bot_api.get_group_member_profile(group_id, member_id)
+                    username = profile.display_name
+                except:
+                    username = "Unknown"
                 c.execute('INSERT OR IGNORE INTO group_members (group_id, user_id, username) VALUES (?, ?, ?)',
-                          (group_id, member_id, profile.display_name))
+                          (group_id, member_id, username))
             conn.commit()
             logging.info(f"Stored members for group: {group_id}")
     except Exception as e:
         logging.error(f"Error storing group members: {e}")
+        raise
 
 # دالة لطرد مستخدم من المجموعة
 def kick_user_from_group(group_id, user_id):
@@ -140,6 +145,7 @@ def kick_user_from_group(group_id, user_id):
         logging.info(f"User {user_id} kicked from group {group_id}.")
     except Exception as e:
         logging.error(f"Error kicking user {user_id} from group {group_id}: {e}")
+        raise
 
 # نقطة النهاية لـ Webhook
 @app.route("/callback", methods=['POST'])
@@ -236,15 +242,91 @@ def handle_message(event):
                     # تخزين أعضاء المجموعة
                     if is_group_event:
                         group_id = event.source.group_id
-                        store_group_members(group_id)
-                        line_bot_api.reply_message(
-                            event.reply_token,
-                            TextSendMessage(text="Group members stored successfully.")
-                        )
+                        try:
+                            store_group_members(group_id)
+                            line_bot_api.reply_message(
+                                event.reply_token,
+                                TextSendMessage(text="Group members stored successfully.")
+                            )
+                        except Exception as e:
+                            # وضع قسري: إعادة المحاولة
+                            try:
+                                members = line_bot_api.get_group_member_ids(group_id)
+                                usernames = []
+                                for member_id in members:
+                                    try:
+                                        profile = line_bot_api.get_group_member_profile(group_id, member_id)
+                                        usernames.append(profile.display_name)
+                                    except:
+                                        usernames.append(member_id)
+                                line_bot_api.reply_message(
+                                    event.reply_token,
+                                    TextSendMessage(text=f"Force-stored group members:\n{', '.join(usernames)}")
+                                )
+                            except Exception as e:
+                                line_bot_api.reply_message(
+                                    event.reply_token,
+                                    TextSendMessage(text="Failed to store group members even in force mode.")
+                                )
                     else:
                         line_bot_api.reply_message(
                             event.reply_token,
                             TextSendMessage(text="This command can only be used in a group.")
+                        )
+                elif command == 'force':
+                    # وضع قسري: تنفيذ أمر بالقوة
+                    if is_group_event:
+                        group_id = event.source.group_id
+                        try:
+                            members = line_bot_api.get_group_member_ids(group_id)
+                            usernames = []
+                            for member_id in members:
+                                try:
+                                    profile = line_bot_api.get_group_member_profile(group_id, member_id)
+                                    usernames.append(profile.display_name)
+                                except:
+                                    usernames.append(member_id)
+                            line_bot_api.reply_message(
+                                event.reply_token,
+                                TextSendMessage(text=f"Force-executed command:\n{', '.join(usernames)}")
+                            )
+                        except Exception as e:
+                            line_bot_api.reply_message(
+                                event.reply_token,
+                                TextSendMessage(text="Force execution failed.")
+                            )
+                    else:
+                        line_bot_api.reply_message(
+                            event.reply_token,
+                            TextSendMessage(text="Force mode can only be used in a group.")
+                        )
+                elif command == 'status':
+                    # عرض حالة البوت
+                    status = get_tracking_status()
+                    line_bot_api.reply_message(
+                        event.reply_token,
+                        TextSendMessage(text=f"Bot status: Tracking is {status}.")
+                    )
+                elif command == 'clear':
+                    # مسح بيانات قاعدة البيانات
+                    try:
+                        with sqlite3.connect(DB_PATH) as conn:
+                            c = conn.cursor()
+                            c.execute('DELETE FROM lurk_messages')
+                            c.execute('DELETE FROM lurk_readers')
+                            c.execute('DELETE FROM logs')
+                            c.execute('DELETE FROM group_members')
+                            conn.commit()
+                            logging.info("Cleared all data from database.")
+                            line_bot_api.reply_message(
+                                event.reply_token,
+                                TextSendMessage(text="All data cleared from database.")
+                            )
+                    except Exception as e:
+                        logging.error(f"Error clearing database: {e}")
+                        line_bot_api.reply_message(
+                            event.reply_token,
+                            TextSendMessage(text="Failed to clear database.")
                         )
             else:
                 # لا يوجد رد تلقائي عند تنفيذ الأوامر
