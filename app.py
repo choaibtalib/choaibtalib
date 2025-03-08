@@ -4,7 +4,7 @@ import logging
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from linebot.models import MessageEvent, TextMessage, TextSendMessage, FollowEvent, UnfollowEvent, JoinEvent, LeaveEvent
 
 # تهيئة السجلات (Logging)
 logging.basicConfig(level=logging.INFO)
@@ -39,6 +39,12 @@ def init_db():
                          (message_id TEXT, user_id TEXT, timestamp INTEGER, PRIMARY KEY (message_id, user_id))''')
             c.execute('''CREATE TABLE IF NOT EXISTS logs
                          (log_id INTEGER PRIMARY KEY AUTOINCREMENT, event TEXT, timestamp INTEGER)''')
+            c.execute('''CREATE TABLE IF NOT EXISTS group_members
+                         (group_id TEXT, user_id TEXT, username TEXT, UNIQUE(group_id, user_id))''')
+            c.execute('''CREATE TABLE IF NOT EXISTS tracking_status
+                         (status TEXT)''')
+            # إعداد حالة التتبع الافتراضية
+            c.execute('INSERT OR IGNORE INTO tracking_status (status) VALUES (?)', ('off',))
             conn.commit()
             logging.info("Database tables created successfully.")
     except Exception as e:
@@ -89,6 +95,44 @@ def log_event(event, timestamp):
     except Exception as e:
         logging.error(f"Database Error in log_event: {e}")
 
+# دالة لتشغيل أو إيقاف التتبع
+def toggle_tracking(status):
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            c = conn.cursor()
+            c.execute('UPDATE tracking_status SET status = ?', (status,))
+            conn.commit()
+            logging.info(f"Tracking status updated to: {status}")
+    except Exception as e:
+        logging.error(f"Database Error in toggle_tracking: {e}")
+
+# دالة للحصول على حالة التتبع
+def get_tracking_status():
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            c = conn.cursor()
+            c.execute('SELECT status FROM tracking_status')
+            result = c.fetchone()
+            return result[0] if result else 'off'
+    except Exception as e:
+        logging.error(f"Database Error in get_tracking_status: {e}")
+        return 'off'
+
+# دالة لتخزين أعضاء المجموعة
+def store_group_members(group_id):
+    try:
+        members = line_bot_api.get_group_members_summary(group_id)
+        with sqlite3.connect(DB_PATH) as conn:
+            c = conn.cursor()
+            for member in members.user_ids:
+                profile = line_bot_api.get_group_member_profile(group_id, member)
+                c.execute('INSERT OR IGNORE INTO group_members (group_id, user_id, username) VALUES (?, ?, ?)',
+                          (group_id, member, profile.display_name))
+            conn.commit()
+            logging.info(f"Stored members for group: {group_id}")
+    except Exception as e:
+        logging.error(f"Error storing group members: {e}")
+
 # نقطة النهاية لـ Webhook
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -124,29 +168,66 @@ def handle_message(event):
     try:
         # التحقق مما إذا كان المستخدم هو المالك
         if user_id == OWNER_USER_ID:
-            # المالك فقط يمكنه إرسال الأوامر
-            if text.startswith('/'):
+            if text.startswith('.'):
                 command = text[1:].strip()
-                if command == 'status':
-                    line_bot_api.reply_message(
-                        event.reply_token,
-                        TextSendMessage(text="Bot is running smoothly!")
-                    )
-                elif command == 'users':
+                if command == 'p':
+                    # عرض المستخدمين الذين قرؤوا الرسالة
                     with sqlite3.connect(DB_PATH) as conn:
                         c = conn.cursor()
-                        c.execute('SELECT DISTINCT user_id FROM lurk_readers')
-                        users = c.fetchall()
-                        user_list = "\n".join([user[0] for user in users])
-                        line_bot_api.reply_message(
-                            event.reply_token,
-                            TextSendMessage(text=f"Active users:\n{user_list}")
-                        )
-                else:
+                        c.execute('SELECT DISTINCT user_id FROM lurk_readers WHERE message_id = ?', (message_id,))
+                        readers = c.fetchall()
+                        if readers:
+                            reader_list = "\n".join([reader[0] for reader in readers])
+                            line_bot_api.reply_message(
+                                event.reply_token,
+                                TextSendMessage(text=f"Users who read the message:\n{reader_list}")
+                            )
+                        else:
+                            line_bot_api.reply_message(
+                                event.reply_token,
+                                TextSendMessage(text="No users have read this message yet.")
+                            )
+                elif command == 'o':
+                    # إيقاف التتبع
+                    toggle_tracking('off')
                     line_bot_api.reply_message(
                         event.reply_token,
-                        TextSendMessage(text="Unknown command!")
+                        TextSendMessage(text="Tracking turned off.")
                     )
+                elif command == 'u':
+                    # تشغيل التتبع
+                    toggle_tracking('on')
+                    line_bot_api.reply_message(
+                        event.reply_token,
+                        TextSendMessage(text="Tracking turned on.")
+                    )
+                elif command.startswith('id g'):
+                    # الحصول على ID المجموعة
+                    group_id = event.source.group_id if hasattr(event.source, 'group_id') else None
+                    if group_id:
+                        line_bot_api.reply_message(
+                            event.reply_token,
+                            TextSendMessage(text=f"Group ID: {group_id}")
+                        )
+                    else:
+                        line_bot_api.reply_message(
+                            event.reply_token,
+                            TextSendMessage(text="This command can only be used in a group.")
+                        )
+                elif command.startswith('id a'):
+                    # تخزين أعضاء المجموعة
+                    group_id = event.source.group_id if hasattr(event.source, 'group_id') else None
+                    if group_id:
+                        store_group_members(group_id)
+                        line_bot_api.reply_message(
+                            event.reply_token,
+                            TextSendMessage(text="Group members stored successfully.")
+                        )
+                    else:
+                        line_bot_api.reply_message(
+                            event.reply_token,
+                            TextSendMessage(text="This command can only be used in a group.")
+                        )
             else:
                 line_bot_api.reply_message(
                     event.reply_token,
