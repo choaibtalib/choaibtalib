@@ -4,14 +4,14 @@ import logging
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage, GroupEvent
+from linebot.models import MessageEvent, TextMessage, TextSendMessage
 
 # تهيئة السجلات (Logging)
 logging.basicConfig(level=logging.INFO)
 
 # مسارات ومفاتيح API
-LINE_CHANNEL_ACCESS_TOKEN = 'OGuV9/KT+JED14YLuEYZuyhi+BCCZfTSpRUD+OQzp3HXMQpvob/UteHHf10JOeNMz5sRMtXPH0/bNDdVtXfjno1tZGqIsJ4whziPkw4CO5VECZT56SaaFsRrvHI5wBPFNs6iFJIcfHSptnKZNcsnmgdB04t89/1O/w1cDnyilFU='
-LINE_CHANNEL_SECRET = '7d0ad0324f874c8574f15058646fa067'
+LINE_CHANNEL_ACCESS_TOKEN = 'YOUR_CHANNEL_ACCESS_TOKEN'  # أضف توكن الـ Channel Access هنا
+LINE_CHANNEL_SECRET = 'YOUR_CHANNEL_SECRET'  # أضف Secret Key هنا
 
 # معرف المالك (يمكن فقط للمالك إرسال الأوامر)
 OWNER_USER_ID = 'Ua673da6876bab906ce8734e94e59502a'
@@ -174,6 +174,9 @@ def handle_message(event):
     log_event(f"User {user_id} sent message: {text}", timestamp)
 
     try:
+        # التحقق مما إذا كان الحدث قد حدث في مجموعة
+        is_group_event = hasattr(event.source, 'group_id')
+
         # التحقق مما إذا كان المستخدم هو المالك
         if user_id == OWNER_USER_ID:
             if text.startswith('.'):
@@ -218,7 +221,7 @@ def handle_message(event):
                     )
                 elif command.startswith('id g'):
                     # الحصول على ID المجموعة
-                    if hasattr(event.source, 'group_id'):
+                    if is_group_event:
                         group_id = event.source.group_id
                         line_bot_api.reply_message(
                             event.reply_token,
@@ -231,7 +234,7 @@ def handle_message(event):
                         )
                 elif command.startswith('id a'):
                     # تخزين أعضاء المجموعة
-                    if hasattr(event.source, 'group_id'):
+                    if is_group_event:
                         group_id = event.source.group_id
                         store_group_members(group_id)
                         line_bot_api.reply_message(
@@ -250,7 +253,7 @@ def handle_message(event):
             # الرد على المستخدمين العاديين
             if text.strip() == '@All':
                 # طرد المستخدم إذا كتب @All
-                if hasattr(event.source, 'group_id'):
+                if is_group_event:
                     group_id = event.source.group_id
                     kick_user_from_group(group_id, user_id)
                     line_bot_api.reply_message(
