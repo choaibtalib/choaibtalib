@@ -4,7 +4,7 @@ import logging
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage, FollowEvent, UnfollowEvent, JoinEvent, LeaveEvent
+from linebot.models import MessageEvent, TextMessage, TextSendMessage, GroupEvent
 
 # تهيئة السجلات (Logging)
 logging.basicConfig(level=logging.INFO)
@@ -121,17 +121,25 @@ def get_tracking_status():
 # دالة لتخزين أعضاء المجموعة
 def store_group_members(group_id):
     try:
-        members = line_bot_api.get_group_members_summary(group_id)
+        members = line_bot_api.get_group_member_ids(group_id)
         with sqlite3.connect(DB_PATH) as conn:
             c = conn.cursor()
-            for member in members.user_ids:
-                profile = line_bot_api.get_group_member_profile(group_id, member)
+            for member_id in members:
+                profile = line_bot_api.get_group_member_profile(group_id, member_id)
                 c.execute('INSERT OR IGNORE INTO group_members (group_id, user_id, username) VALUES (?, ?, ?)',
-                          (group_id, member, profile.display_name))
+                          (group_id, member_id, profile.display_name))
             conn.commit()
             logging.info(f"Stored members for group: {group_id}")
     except Exception as e:
         logging.error(f"Error storing group members: {e}")
+
+# دالة لطرد مستخدم من المجموعة
+def kick_user_from_group(group_id, user_id):
+    try:
+        line_bot_api.kick_group_member(group_id, user_id)
+        logging.info(f"User {user_id} kicked from group {group_id}.")
+    except Exception as e:
+        logging.error(f"Error kicking user {user_id} from group {group_id}: {e}")
 
 # نقطة النهاية لـ Webhook
 @app.route("/callback", methods=['POST'])
@@ -177,7 +185,14 @@ def handle_message(event):
                         c.execute('SELECT DISTINCT user_id FROM lurk_readers WHERE message_id = ?', (message_id,))
                         readers = c.fetchall()
                         if readers:
-                            reader_list = "\n".join([reader[0] for reader in readers])
+                            reader_names = []
+                            for reader_id in readers:
+                                try:
+                                    profile = line_bot_api.get_profile(reader_id[0])
+                                    reader_names.append(profile.display_name)
+                                except:
+                                    reader_names.append(reader_id[0])  # إذا فشل الحصول على الاسم
+                            reader_list = "\n".join(reader_names)
                             line_bot_api.reply_message(
                                 event.reply_token,
                                 TextSendMessage(text=f"Users who read the message:\n{reader_list}")
@@ -203,8 +218,8 @@ def handle_message(event):
                     )
                 elif command.startswith('id g'):
                     # الحصول على ID المجموعة
-                    group_id = event.source.group_id if hasattr(event.source, 'group_id') else None
-                    if group_id:
+                    if hasattr(event.source, 'group_id'):
+                        group_id = event.source.group_id
                         line_bot_api.reply_message(
                             event.reply_token,
                             TextSendMessage(text=f"Group ID: {group_id}")
@@ -216,8 +231,8 @@ def handle_message(event):
                         )
                 elif command.startswith('id a'):
                     # تخزين أعضاء المجموعة
-                    group_id = event.source.group_id if hasattr(event.source, 'group_id') else None
-                    if group_id:
+                    if hasattr(event.source, 'group_id'):
+                        group_id = event.source.group_id
                         store_group_members(group_id)
                         line_bot_api.reply_message(
                             event.reply_token,
@@ -229,16 +244,30 @@ def handle_message(event):
                             TextSendMessage(text="This command can only be used in a group.")
                         )
             else:
+                # لا يوجد رد تلقائي عند تنفيذ الأوامر
+                pass
+        else:
+            # الرد على المستخدمين العاديين
+            if text.strip() == '@All':
+                # طرد المستخدم إذا كتب @All
+                if hasattr(event.source, 'group_id'):
+                    group_id = event.source.group_id
+                    kick_user_from_group(group_id, user_id)
+                    line_bot_api.reply_message(
+                        event.reply_token,
+                        TextSendMessage(text="You have been kicked for using @All.")
+                    )
+                else:
+                    line_bot_api.reply_message(
+                        event.reply_token,
+                        TextSendMessage(text="Do not use @All outside of groups.")
+                    )
+            else:
+                # الرد التلقائي على الرسائل العادية
                 line_bot_api.reply_message(
                     event.reply_token,
-                    TextSendMessage(text=f"Thank you for your message: {text}")
+                    TextSendMessage(text="Thank you for your message!")
                 )
-        else:
-            # المستخدم غير المالك لا يمكنه إرسال أوامر
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text="You are not authorized to send commands.")
-            )
     except Exception as e:
         logging.error(f"Error in handling message: {e}")
 
