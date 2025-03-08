@@ -10,8 +10,8 @@ from linebot.models import MessageEvent, TextMessage, TextSendMessage
 logging.basicConfig(level=logging.INFO)
 
 # مسارات ومفاتيح API
-LINE_CHANNEL_ACCESS_TOKEN = 'YOUR_CHANNEL_ACCESS_TOKEN'  # أضف توكن الـ Channel Access هنا
-LINE_CHANNEL_SECRET = 'YOUR_CHANNEL_SECRET'  # أضف Secret Key هنا
+LINE_CHANNEL_ACCESS_TOKEN = 'OGuV9/KT+JED14YLuEYZuyhi+BCCZfTSpRUD+OQzp3HXMQpvob/UteHHf10JOeNMz5sRMtXPH0/bNDdVtXfjno1tZGqIsJ4whziPkw4CO5VECZT56SaaFsRrvHI5wBPFNs6iFJIcfHSptnKZNcsnmgdB04t89/1O/w1cDnyilFU='  # أضف توكن الـ Channel Access هنا
+LINE_CHANNEL_SECRET = '7d0ad0324f874c8574f15058646fa067'  # أضف Secret Key هنا
 
 # معرف المالك (يمكن فقط للمالك إرسال الأوامر)
 OWNER_USER_ID = 'Ua673da6876bab906ce8734e94e59502a'
