@@ -1,25 +1,8 @@
 import os
 import sqlite3
-from flask import Flask, request, abort
-from linebot import LineBotApi, WebhookHandler
-from linebot.exceptions import InvalidSignatureError, LineBotApiError
-from linebot.models import TextMessage, MessageEvent
-import logging
-import time
-
-# إعداد تسجيل الأخطاء
-logging.basicConfig(level=logging.DEBUG)
-
-# استبدل هذه القيم بقيمك الخاصة
-LINE_CHANNEL_ACCESS_TOKEN = 'OGuV9/KT+JED14YLuEYZuyhi+BCCZfTSpRUD+OQzp3HXMQpvob/UteHHf10JOeNMz5sRMtXPH0/bNDdVtXfjno1tZGqIsJ4whziPkw4CO5VECZT56SaaFsRrvHI5wBPFNs6iFJIcfHSptnKZNcsnmgdB04t89/1O/w1cDnyilFU='
-LINE_CHANNEL_SECRET = '7d0ad0324f874c8574f15058646fa067'
-OWNER_USER_ID = 'Ua673da6876bab906ce8734e94e59502a'
-# تهيئة LINE Bot API
-line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
-handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
 # مسار قاعدة البيانات
-DB_PATH = 'C:\\data\\lurk.db' if os.getenv('RENDER') else 'lurk.db'
+DB_PATH = '/data/lurk.db' if os.getenv('RENDER') else 'lurk.db'
 
 # طباعة المسار للتأكد منه
 print(f"مسار قاعدة البيانات: {DB_PATH}")
@@ -46,4 +29,5 @@ def init_db():
     except Exception as e:
         logging.error(f"Critical error in init_db: {e}")
 
-# باقي الكود...
+# استدعاء الدالة لتهيئة قاعدة البيانات
+init_db()
