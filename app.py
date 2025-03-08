@@ -5,6 +5,9 @@ from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from textblob import TextBlob  # تحليل النصوص
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 # تهيئة السجلات (Logging)
 logging.basicConfig(level=logging.INFO)
@@ -43,6 +46,10 @@ def init_db():
                          (group_id TEXT, user_id TEXT, username TEXT, UNIQUE(group_id, user_id))''')
             c.execute('''CREATE TABLE IF NOT EXISTS tracking_status
                          (status TEXT)''')
+            c.execute('''CREATE TABLE IF NOT EXISTS roles
+                         (group_id TEXT, user_id TEXT, role TEXT, UNIQUE(group_id, user_id))''')
+            c.execute('''CREATE TABLE IF NOT EXISTS deleted_messages
+                         (message_id TEXT PRIMARY KEY, text TEXT, timestamp INTEGER)''')
             # إعداد حالة التتبع الافتراضية
             c.execute('INSERT OR IGNORE INTO tracking_status (status) VALUES (?)', ('off',))
             conn.commit()
@@ -145,7 +152,70 @@ def kick_user_from_group(group_id, user_id):
         logging.info(f"User {user_id} kicked from group {group_id}.")
     except Exception as e:
         logging.error(f"Error kicking user {user_id} from group {group_id}: {e}")
-        raise
+        send_notification(group_id, f"Failed to kick user {user_id}. Sending warning instead.")
+
+# دالة لإرسال إشعارات مخصصة
+def send_notification(group_id, message):
+    try:
+        line_bot_api.push_message(group_id, TextSendMessage(text=message))
+        logging.info(f"Notification sent to group {group_id}: {message}")
+    except Exception as e:
+        logging.error(f"Error sending notification: {e}")
+
+# دالة لتحليل المشاعر في الرسالة
+def analyze_sentiment(text):
+    try:
+        blob = TextBlob(text)
+        polarity = blob.sentiment.polarity
+        if polarity > 0:
+            return "Positive"
+        elif polarity < 0:
+            return "Negative"
+        else:
+            return "Neutral"
+    except Exception as e:
+        logging.error(f"Error analyzing sentiment: {e}")
+        return "Unknown"
+
+# دالة لإضافة دور للمستخدم
+def add_role(group_id, user_id, role):
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            c = conn.cursor()
+            c.execute('INSERT OR REPLACE INTO roles (group_id, user_id, role) VALUES (?, ?, ?)',
+                      (group_id, user_id, role))
+            conn.commit()
+            logging.info(f"Role '{role}' added for user {user_id} in group {group_id}.")
+    except Exception as e:
+        logging.error(f"Error adding role: {e}")
+
+# دالة للحصول على دور المستخدم
+def get_user_role(group_id, user_id):
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            c = conn.cursor()
+            c.execute('SELECT role FROM roles WHERE group_id = ? AND user_id = ?', (group_id, user_id))
+            result = c.fetchone()
+            return result[0] if result else 'Member'
+    except Exception as e:
+        logging.error(f"Error getting user role: {e}")
+        return 'Member'
+
+# تهيئة Google Sheets
+def init_google_sheets():
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+    client = gspread.authorize(creds)
+    sheet = client.open("BotData").sheet1
+    return sheet
+
+# إضافة بيانات إلى Google Sheets
+def add_to_google_sheets(sheet, data):
+    try:
+        sheet.append_row(data)
+        logging.info(f"Data added to Google Sheets: {data}")
+    except Exception as e:
+        logging.error(f"Error adding data to Google Sheets: {e}")
 
 # نقطة النهاية لـ Webhook
 @app.route("/callback", methods=['POST'])
@@ -153,13 +223,11 @@ def callback():
     signature = request.headers['X-Line-Signature']
     body = request.get_data(as_text=True)
     logging.info(f"Request body: {body}")
-
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
         logging.error("Invalid signature. Please check your channel access token/secret.")
         abort(400)
-
     return 'OK'
 
 # معالجة الرسائل الواردة
@@ -178,6 +246,10 @@ def handle_message(event):
 
     # تسجيل الحدث
     log_event(f"User {user_id} sent message: {text}", timestamp)
+
+    # تحليل المشاعر
+    sentiment = analyze_sentiment(text)
+    log_event(f"User {user_id} sent message with sentiment: {sentiment}", timestamp)
 
     try:
         # التحقق مما إذا كان الحدث قد حدث في مجموعة
@@ -249,7 +321,8 @@ def handle_message(event):
                                 TextSendMessage(text="Group members stored successfully.")
                             )
                         except Exception as e:
-                            # وضع قسري: إعادة المحاولة
+                            # وضع قصوى: إعادة المحاولة
+                                                        # وضع قصوى: إعادة المحاولة
                             try:
                                 members = line_bot_api.get_group_member_ids(group_id)
                                 usernames = []
@@ -266,15 +339,15 @@ def handle_message(event):
                             except Exception as e:
                                 line_bot_api.reply_message(
                                     event.reply_token,
-                                    TextSendMessage(text="Failed to store group members even in force mode.")
+                                    TextSendMessage(text="Failed to store group members even in extreme mode.")
                                 )
                     else:
                         line_bot_api.reply_message(
                             event.reply_token,
                             TextSendMessage(text="This command can only be used in a group.")
                         )
-                elif command == 'force':
-                    # وضع قسري: تنفيذ أمر بالقوة
+                elif command == 'extreme':
+                    # وضع قصوى: تنفيذ أمر بالقوة
                     if is_group_event:
                         group_id = event.source.group_id
                         try:
@@ -288,17 +361,17 @@ def handle_message(event):
                                     usernames.append(member_id)
                             line_bot_api.reply_message(
                                 event.reply_token,
-                                TextSendMessage(text=f"Force-executed command:\n{', '.join(usernames)}")
+                                TextSendMessage(text=f"Extreme mode executed:\n{', '.join(usernames)}")
                             )
                         except Exception as e:
                             line_bot_api.reply_message(
                                 event.reply_token,
-                                TextSendMessage(text="Force execution failed.")
+                                TextSendMessage(text="Extreme mode failed.")
                             )
                     else:
                         line_bot_api.reply_message(
                             event.reply_token,
-                            TextSendMessage(text="Force mode can only be used in a group.")
+                            TextSendMessage(text="Extreme mode can only be used in a group.")
                         )
                 elif command == 'status':
                     # عرض حالة البوت
@@ -328,20 +401,64 @@ def handle_message(event):
                             event.reply_token,
                             TextSendMessage(text="Failed to clear database.")
                         )
-            else:
-                # لا يوجد رد تلقائي عند تنفيذ الأوامر
-                pass
+                elif command.startswith('addrole'):
+                    # إضافة دور للمستخدم
+                    parts = command.split()
+                    if len(parts) == 4 and is_group_event:
+                        _, target_user_id, role = parts
+                        group_id = event.source.group_id
+                        add_role(group_id, target_user_id, role)
+                        line_bot_api.reply_message(
+                            event.reply_token,
+                            TextSendMessage(text=f"Role '{role}' added for user {target_user_id}.")
+                        )
+                    else:
+                        line_bot_api.reply_message(
+                            event.reply_token,
+                            TextSendMessage(text="Usage: .addrole <user_id> <role>")
+                        )
+                elif command.startswith('getrole'):
+                    # الحصول على دور المستخدم
+                    parts = command.split()
+                    if len(parts) == 2 and is_group_event:
+                        _, target_user_id = parts
+                        group_id = event.source.group_id
+                        role = get_user_role(group_id, target_user_id)
+                        line_bot_api.reply_message(
+                            event.reply_token,
+                            TextSendMessage(text=f"Role of user {target_user_id}: {role}")
+                        )
+                    else:
+                        line_bot_api.reply_message(
+                            event.reply_token,
+                            TextSendMessage(text="Usage: .getrole <user_id>")
+                        )
+                elif command == 'sheets':
+                    # تخزين البيانات في Google Sheets
+                    sheet = init_google_sheets()
+                    data = [user_id, message_id, text, timestamp]
+                    add_to_google_sheets(sheet, data)
+                    line_bot_api.reply_message(
+                        event.reply_token,
+                        TextSendMessage(text="Data stored in Google Sheets.")
+                    )
         else:
             # الرد على المستخدمين العاديين
             if text.strip() == '@All':
                 # طرد المستخدم إذا كتب @All
                 if is_group_event:
                     group_id = event.source.group_id
-                    kick_user_from_group(group_id, user_id)
-                    line_bot_api.reply_message(
-                        event.reply_token,
-                        TextSendMessage(text="You have been kicked for using @All.")
-                    )
+                    try:
+                        kick_user_from_group(group_id, user_id)
+                        line_bot_api.reply_message(
+                            event.reply_token,
+                            TextSendMessage(text="You have been kicked for using @All.")
+                        )
+                    except Exception as e:
+                        line_bot_api.reply_message(
+                            event.reply_token,
+                            TextSendMessage(text="Failed to kick user. Sending warning to admins instead.")
+                        )
                 else:
                     line_bot_api.reply_message(
                         event.reply_token,
