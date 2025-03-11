@@ -10,9 +10,9 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-# قراءة المتغيرات البيئية
-LINE_CHANNEL_ACCESS_TOKEN = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
-LINE_CHANNEL_SECRET = os.getenv('LINE_CHANNEL_SECRET')
+# إعدادات LINE API
+LINE_CHANNEL_ACCESS_TOKEN = "OGuV9/KT+JED14YLuEYZuyhi+BCCZfTSpRUD+OQzp3HXMQpvob/UteHHf10JOeNMz5sRMtXPH0/bNDdVtXfjno1tZGqIsJ4whziPkw4CO5VECZT56SaaFsRrvHI5wBPFNs6iFJIcfHSptnKZNcsnmgdB04t89/1O/w1cDnyilFU="
+LINE_CHANNEL_SECRET = "7d0ad0324f874c8574f15058646fa067"
 OWNER_USER_ID = "Ua673da6876bab906ce8734e94e59502a"
 
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
@@ -50,16 +50,16 @@ def handle_message(event):
         if txt == ".lurk on":
             lurking = True
             seen_users = []
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Lurking mode activated!"))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ وضع المراقبة مفعل!"))
         elif txt == ".lurk off":
             lurking = False
             seen_users = []
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Lurking mode deactivated!"))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ وضع المراقبة متوقف!"))
         elif txt == ".r":
             if not seen_users:
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="No users have read the message yet."))
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="🚫 لم يقرأ أحد الرسالة بعد."))
             else:
-                readers_message = "👥 Users who read the message:\n" + "\n".join([f"- {u['name']}" for u in seen_users])
+                readers_message = "👀 الأعضاء الذين قرأوا الرسالة:\n\n" + "\n".join([f"🔹 {u['name']}" for u in seen_users])
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text=readers_message))
     
     if lurking and group_id:
