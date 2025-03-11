@@ -2,7 +2,6 @@ from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage,
-    StickerSendMessage, ImageSendMessage,
     MemberJoinedEvent, MemberLeftEvent
 )
 import os
@@ -11,19 +10,23 @@ from datetime import datetime
 
 app = Flask(__name__)
 
+# قراءة المتغيرات البيئية
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
 LINE_CHANNEL_SECRET = os.getenv('LINE_CHANNEL_SECRET')
-
-if not LINE_CHANNEL_ACCESS_TOKEN or not LINE_CHANNEL_SECRET:
-    raise ValueError("Please set LINE_CHANNEL_ACCESS_TOKEN and LINE_CHANNEL_SECRET in your environment variables.")
+OWNER_USER_ID = "Ua673da6876bab906ce8734e94e59502a"
 
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-OWNER_USER_ID = "Ua673da6876bab906ce8734e94e59502a"
 lurking = False
 seen_users = []
-break_rules = False
+
+def get_user_name(group_id, user_id):
+    try:
+        profile = line_bot_api.get_group_member_profile(group_id, user_id)
+        return profile.display_name
+    except:
+        return f"User-{user_id}"  # اسم افتراضي في حال فشل جلب الاسم
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -38,59 +41,31 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    global lurking, seen_users, break_rules
-
+    global lurking, seen_users
     txt = event.message.text.strip()
     user_id = event.source.user_id
     group_id = event.source.group_id if event.source.type == "group" else None
-
+    
     if txt.startswith(".") and user_id == OWNER_USER_ID:
         if txt == ".lurk on":
             lurking = True
-            seen_users.clear()
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Lurking mode activated."))
+            seen_users = []
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Lurking mode activated!"))
         elif txt == ".lurk off":
             lurking = False
-            seen_users.clear()
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Lurking mode deactivated. Data cleared."))
-        elif txt == ".wr":
+            seen_users = []
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Lurking mode deactivated!"))
+        elif txt == ".r":
             if not seen_users:
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text="No users have read the message yet."))
             else:
-                reader_list = []
-                for user in seen_users:
-                    timestamp_str = datetime.fromtimestamp(user['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
-                    reader_list.append(f"👤 {user['name']} ({user['user_id']})\n📅 Read at: {timestamp_str}")
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="👥 Readers:\n\n" + "\n\n".join(reader_list)))
-        elif txt == ".kick" and group_id:
-            if len(seen_users) > 0:
-                for user in seen_users:
-                    try:
-                        line_bot_api.kick_out_from_group(group_id, user['user_id'])
-                        line_bot_api.push_message(group_id, TextSendMessage(text=f"🚨 {user['name']} has been removed."))
-                    except Exception as e:
-                        print(f"Error kicking user {user['user_id']}: {e}")
-            else:
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="No users to kick."))
-
+                readers_message = "👥 Users who read the message:\n" + "\n".join([f"- {u['name']}" for u in seen_users])
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=readers_message))
+    
     if lurking and group_id:
-        try:
-            profile = line_bot_api.get_group_member_profile(group_id, user_id)
-            user_name = profile.display_name
-        except Exception as e:
-            user_name = f"User-{user_id}"
-            print(f"Error fetching profile: {e}")
-        
+        user_name = get_user_name(group_id, user_id)
         if not any(user['user_id'] == user_id for user in seen_users):
-            seen_users.append({
-                'name': user_name,
-                'user_id': user_id,
-                'timestamp': time.time()
-            })
-
-@app.route("/")
-def index():
-    return "LINE bot is running."
+            seen_users.append({'name': user_name, 'user_id': user_id, 'timestamp': time.time()})
 
 if __name__ == "__main__":
     app.run(port=8000)
