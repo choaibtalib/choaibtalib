@@ -1,478 +1,66 @@
-import os
-import sqlite3
-import logging
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
-from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
-from textblob import TextBlob  # تحليل النصوص
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+import os
 
-# تهيئة السجلات (Logging)
-logging.basicConfig(level=logging.INFO)
-
-# مسارات ومفاتيح API
-LINE_CHANNEL_ACCESS_TOKEN = 'OGuV9/KT+JED14YLuEYZuyhi+BCCZfTSpRUD+OQzp3HXMQpvob/UteHHf10JOeNMz5sRMtXPH0/bNDdVtXfjno1tZGqIsJ4whziPkw4CO5VECZT56SaaFsRrvHI5wBPFNs6iFJIcfHSptnKZNcsnmgdB04t89/1O/w1cDnyilFU='  # أضف توكن الـ Channel Access هنا
-LINE_CHANNEL_SECRET = '7d0ad0324f874c8574f15058646fa067'  # أضف Secret Key هنا
-
-# معرف المالك (يمكن فقط للمالك إرسال الأوامر)
-OWNER_USER_ID = 'Ua673da6876bab906ce8734e94e59502a'
-
-# مسار قاعدة البيانات
-DB_PATH = r'C:\Data\lurk.db' if os.getenv('RENDER') else r'C:\Data\your_bot_project\lurk.db'
-
-# طباعة المسار للتأكد منه
-print(f"مسار قاعدة البيانات: {DB_PATH}")
-
-# إنشاء المجلد إذا لم يكن موجودًا
-db_dir = os.path.dirname(DB_PATH)
-if db_dir and not os.path.exists(db_dir):
-    os.makedirs(db_dir, exist_ok=True)
-    print(f"تم إنشاء المجلد: {db_dir}")
-
-# تهيئة قاعدة البيانات
-def init_db():
-    try:
-        with sqlite3.connect(DB_PATH) as conn:
-            c = conn.cursor()
-            c.execute('''CREATE TABLE IF NOT EXISTS lurk_messages
-                         (message_id TEXT PRIMARY KEY, text TEXT, timestamp INTEGER)''')
-            c.execute('''CREATE TABLE IF NOT EXISTS lurk_readers
-                         (message_id TEXT, user_id TEXT, timestamp INTEGER, PRIMARY KEY (message_id, user_id))''')
-            c.execute('''CREATE TABLE IF NOT EXISTS logs
-                         (log_id INTEGER PRIMARY KEY AUTOINCREMENT, event TEXT, timestamp INTEGER)''')
-            c.execute('''CREATE TABLE IF NOT EXISTS group_members
-                         (group_id TEXT, user_id TEXT, username TEXT, UNIQUE(group_id, user_id))''')
-            c.execute('''CREATE TABLE IF NOT EXISTS tracking_status
-                         (status TEXT)''')
-            c.execute('''CREATE TABLE IF NOT EXISTS roles
-                         (group_id TEXT, user_id TEXT, role TEXT, UNIQUE(group_id, user_id))''')
-            c.execute('''CREATE TABLE IF NOT EXISTS deleted_messages
-                         (message_id TEXT PRIMARY KEY, text TEXT, timestamp INTEGER)''')
-            # إعداد حالة التتبع الافتراضية
-            c.execute('INSERT OR IGNORE INTO tracking_status (status) VALUES (?)', ('off',))
-            conn.commit()
-            logging.info("Database tables created successfully.")
-    except Exception as e:
-        logging.error(f"Critical error in init_db: {e}")
-
-# استدعاء الدالة لتهيئة قاعدة البيانات
-init_db()
-
-# تهيئة Flask app
 app = Flask(__name__)
 
-# تهيئة Line Bot API
+# إعداد متغيرات البيئة
+LINE_CHANNEL_ACCESS_TOKEN = os.getenv('OGuV9/KT+JED14YLuEYZuyhi+BCCZfTSpRUD+OQzp3HXMQpvob/UteHHf10JOeNMz5sRMtXPH0/bNDdVtXfjno1tZGqIsJ4whziPkw4CO5VECZT56SaaFsRrvHI5wBPFNs6iFJIcfHSptnKZNcsnmgdB04t89/1O/w1cDnyilFU=')
+LINE_CHANNEL_SECRET = os.getenv('Ua673da6876bab906ce8734e94e59502a')
+
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-# دالة لإضافة رسالة جديدة إلى قاعدة البيانات
-def add_message_to_db(message_id, text, timestamp):
-    try:
-        with sqlite3.connect(DB_PATH) as conn:
-            c = conn.cursor()
-            c.execute('INSERT OR IGNORE INTO lurk_messages (message_id, text, timestamp) VALUES (?, ?, ?)',
-                      (message_id, text, timestamp))
-            conn.commit()
-            logging.info(f"Message added to DB: {message_id}")
-    except Exception as e:
-        logging.error(f"Database Error in add_message_to_db: {e}")
+# حالات البوت
+lurking = False
+seen_users = []
+break_rules = False  # حالة كسر القواعد
 
-# دالة لتحديث نشاط المستخدم في قاعدة البيانات
-def update_user_activity(user_id, message_id, timestamp):
-    try:
-        with sqlite3.connect(DB_PATH) as conn:
-            c = conn.cursor()
-            c.execute('INSERT OR IGNORE INTO lurk_readers (message_id, user_id, timestamp) VALUES (?, ?, ?)',
-                      (message_id, user_id, timestamp))
-            conn.commit()
-            logging.info(f"User activity updated: {user_id}")
-    except Exception as e:
-        logging.error(f"Database Error in update_user_activity: {e}")
-
-# دالة لإضافة تسجيل جديد إلى سجل الأحداث
-def log_event(event, timestamp):
-    try:
-        with sqlite3.connect(DB_PATH) as conn:
-            c = conn.cursor()
-            c.execute('INSERT INTO logs (event, timestamp) VALUES (?, ?)', (event, timestamp))
-            conn.commit()
-            logging.info(f"Event logged: {event}")
-    except Exception as e:
-        logging.error(f"Database Error in log_event: {e}")
-
-# دالة لتشغيل أو إيقاف التتبع
-def toggle_tracking(status):
-    try:
-        with sqlite3.connect(DB_PATH) as conn:
-            c = conn.cursor()
-            c.execute('UPDATE tracking_status SET status = ?', (status,))
-            conn.commit()
-            logging.info(f"Tracking status updated to: {status}")
-    except Exception as e:
-        logging.error(f"Database Error in toggle_tracking: {e}")
-
-# دالة للحصول على حالة التتبع
-def get_tracking_status():
-    try:
-        with sqlite3.connect(DB_PATH) as conn:
-            c = conn.cursor()
-            c.execute('SELECT status FROM tracking_status')
-            result = c.fetchone()
-            return result[0] if result else 'off'
-    except Exception as e:
-        logging.error(f"Database Error in get_tracking_status: {e}")
-        return 'off'
-
-# دالة لتخزين أعضاء المجموعة
-def store_group_members(group_id):
-    try:
-        members = line_bot_api.get_group_member_ids(group_id)
-        with sqlite3.connect(DB_PATH) as conn:
-            c = conn.cursor()
-            for member_id in members:
-                try:
-                    profile = line_bot_api.get_group_member_profile(group_id, member_id)
-                    username = profile.display_name
-                except:
-                    username = "Unknown"
-                c.execute('INSERT OR IGNORE INTO group_members (group_id, user_id, username) VALUES (?, ?, ?)',
-                          (group_id, member_id, username))
-            conn.commit()
-            logging.info(f"Stored members for group: {group_id}")
-    except Exception as e:
-        logging.error(f"Error storing group members: {e}")
-        raise
-
-# دالة لطرد مستخدم من المجموعة
-def kick_user_from_group(group_id, user_id):
-    try:
-        line_bot_api.kick_group_member(group_id, user_id)
-        logging.info(f"User {user_id} kicked from group {group_id}.")
-    except Exception as e:
-        logging.error(f"Error kicking user {user_id} from group {group_id}: {e}")
-        send_notification(group_id, f"Failed to kick user {user_id}. Sending warning instead.")
-
-# دالة لإرسال إشعارات مخصصة
-def send_notification(group_id, message):
-    try:
-        line_bot_api.push_message(group_id, TextSendMessage(text=message))
-        logging.info(f"Notification sent to group {group_id}: {message}")
-    except Exception as e:
-        logging.error(f"Error sending notification: {e}")
-
-# دالة لتحليل المشاعر في الرسالة
-def analyze_sentiment(text):
-    try:
-        blob = TextBlob(text)
-        polarity = blob.sentiment.polarity
-        if polarity > 0:
-            return "Positive"
-        elif polarity < 0:
-            return "Negative"
-        else:
-            return "Neutral"
-    except Exception as e:
-        logging.error(f"Error analyzing sentiment: {e}")
-        return "Unknown"
-
-# دالة لإضافة دور للمستخدم
-def add_role(group_id, user_id, role):
-    try:
-        with sqlite3.connect(DB_PATH) as conn:
-            c = conn.cursor()
-            c.execute('INSERT OR REPLACE INTO roles (group_id, user_id, role) VALUES (?, ?, ?)',
-                      (group_id, user_id, role))
-            conn.commit()
-            logging.info(f"Role '{role}' added for user {user_id} in group {group_id}.")
-    except Exception as e:
-        logging.error(f"Error adding role: {e}")
-
-# دالة للحصول على دور المستخدم
-def get_user_role(group_id, user_id):
-    try:
-        with sqlite3.connect(DB_PATH) as conn:
-            c = conn.cursor()
-            c.execute('SELECT role FROM roles WHERE group_id = ? AND user_id = ?', (group_id, user_id))
-            result = c.fetchone()
-            return result[0] if result else 'Member'
-    except Exception as e:
-        logging.error(f"Error getting user role: {e}")
-        return 'Member'
-
-# تهيئة Google Sheets
-def init_google_sheets():
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
-    client = gspread.authorize(creds)
-    sheet = client.open("BotData").sheet1
-    return sheet
-
-# إضافة بيانات إلى Google Sheets
-def add_to_google_sheets(sheet, data):
-    try:
-        sheet.append_row(data)
-        logging.info(f"Data added to Google Sheets: {data}")
-    except Exception as e:
-        logging.error(f"Error adding data to Google Sheets: {e}")
-
-# نقطة النهاية لـ Webhook
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
     body = request.get_data(as_text=True)
-    logging.info(f"Request body: {body}")
+
     try:
         handler.handle(body, signature)
-    except InvalidSignatureError:
-        logging.error("Invalid signature. Please check your channel access token/secret.")
+    except Exception as e:
+        print(f'Error: {e}')
         abort(400)
+
     return 'OK'
 
-# معالجة الرسائل الواردة
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    user_id = event.source.user_id
-    message_id = event.message.id
-    text = event.message.text
-    timestamp = event.timestamp
+    global lurking, seen_users, break_rules
 
-    # إضافة الرسالة إلى قاعدة البيانات
-    add_message_to_db(message_id, text, timestamp)
+    txt = event.message.text.strip()
 
-    # تحديث نشاط المستخدم
-    update_user_activity(user_id, message_id, timestamp)
-
-    # تسجيل الحدث
-    log_event(f"User {user_id} sent message: {text}", timestamp)
-
-    # تحليل المشاعر
-    sentiment = analyze_sentiment(text)
-    log_event(f"User {user_id} sent message with sentiment: {sentiment}", timestamp)
-
-    try:
-        # التحقق مما إذا كان الحدث قد حدث في مجموعة
-        is_group_event = hasattr(event.source, 'group_id')
-
-        # التحقق مما إذا كان المستخدم هو المالك
-        if user_id == OWNER_USER_ID:
-            if text.startswith('.'):
-                command = text[1:].strip()
-                if command == 'p':
-                    # عرض المستخدمين الذين قرؤوا الرسالة
-                    with sqlite3.connect(DB_PATH) as conn:
-                        c = conn.cursor()
-                        c.execute('SELECT DISTINCT user_id FROM lurk_readers WHERE message_id = ?', (message_id,))
-                        readers = c.fetchall()
-                        if readers:
-                            reader_names = []
-                            for reader_id in readers:
-                                try:
-                                    profile = line_bot_api.get_profile(reader_id[0])
-                                    reader_names.append(profile.display_name)
-                                except:
-                                    reader_names.append(reader_id[0])  # إذا فشل الحصول على الاسم
-                            reader_list = "\n".join(reader_names)
-                            line_bot_api.reply_message(
-                                event.reply_token,
-                                TextSendMessage(text=f"Users who read the message:\n{reader_list}")
-                            )
-                        else:
-                            line_bot_api.reply_message(
-                                event.reply_token,
-                                TextSendMessage(text="No users have read this message yet.")
-                            )
-                elif command == 'o':
-                    # إيقاف التتبع
-                    toggle_tracking('off')
-                    line_bot_api.reply_message(
-                        event.reply_token,
-                        TextSendMessage(text="Tracking turned off.")
-                    )
-                elif command == 'u':
-                    # تشغيل التتبع
-                    toggle_tracking('on')
-                    line_bot_api.reply_message(
-                        event.reply_token,
-                        TextSendMessage(text="Tracking turned on.")
-                    )
-                elif command.startswith('id g'):
-                    # الحصول على ID المجموعة
-                    if is_group_event:
-                        group_id = event.source.group_id
-                        line_bot_api.reply_message(
-                            event.reply_token,
-                            TextSendMessage(text=f"Group ID: {group_id}")
-                        )
-                    else:
-                        line_bot_api.reply_message(
-                            event.reply_token,
-                            TextSendMessage(text="This command can only be used in a group.")
-                        )
-                elif command.startswith('id a'):
-                    # تخزين أعضاء المجموعة
-                    if is_group_event:
-                        group_id = event.source.group_id
-                        try:
-                            store_group_members(group_id)
-                            line_bot_api.reply_message(
-                                event.reply_token,
-                                TextSendMessage(text="Group members stored successfully.")
-                            )
-                        except Exception as e:
-                            # وضع قصوى: إعادة المحاولة
-                                                        # وضع قصوى: إعادة المحاولة
-                            try:
-                                members = line_bot_api.get_group_member_ids(group_id)
-                                usernames = []
-                                for member_id in members:
-                                    try:
-                                        profile = line_bot_api.get_group_member_profile(group_id, member_id)
-                                        usernames.append(profile.display_name)
-                                    except:
-                                        usernames.append(member_id)
-                                line_bot_api.reply_message(
-                                    event.reply_token,
-                                    TextSendMessage(text=f"Force-stored group members:\n{', '.join(usernames)}")
-                                )
-                            except Exception as e:
-                                line_bot_api.reply_message(
-                                    event.reply_token,
-                                    TextSendMessage(text="Failed to store group members even in extreme mode.")
-                                )
-                    else:
-                        line_bot_api.reply_message(
-                            event.reply_token,
-                            TextSendMessage(text="This command can only be used in a group.")
-                        )
-                elif command == 'extreme':
-                    # وضع قصوى: تنفيذ أمر بالقوة
-                    if is_group_event:
-                        group_id = event.source.group_id
-                        try:
-                            members = line_bot_api.get_group_member_ids(group_id)
-                            usernames = []
-                            for member_id in members:
-                                try:
-                                    profile = line_bot_api.get_group_member_profile(group_id, member_id)
-                                    usernames.append(profile.display_name)
-                                except:
-                                    usernames.append(member_id)
-                            line_bot_api.reply_message(
-                                event.reply_token,
-                                TextSendMessage(text=f"Extreme mode executed:\n{', '.join(usernames)}")
-                            )
-                        except Exception as e:
-                            line_bot_api.reply_message(
-                                event.reply_token,
-                                TextSendMessage(text="Extreme mode failed.")
-                            )
-                    else:
-                        line_bot_api.reply_message(
-                            event.reply_token,
-                            TextSendMessage(text="Extreme mode can only be used in a group.")
-                        )
-                elif command == 'status':
-                    # عرض حالة البوت
-                    status = get_tracking_status()
-                    line_bot_api.reply_message(
-                        event.reply_token,
-                        TextSendMessage(text=f"Bot status: Tracking is {status}.")
-                    )
-                elif command == 'clear':
-                    # مسح بيانات قاعدة البيانات
-                    try:
-                        with sqlite3.connect(DB_PATH) as conn:
-                            c = conn.cursor()
-                            c.execute('DELETE FROM lurk_messages')
-                            c.execute('DELETE FROM lurk_readers')
-                            c.execute('DELETE FROM logs')
-                            c.execute('DELETE FROM group_members')
-                            conn.commit()
-                            logging.info("Cleared all data from database.")
-                            line_bot_api.reply_message(
-                                event.reply_token,
-                                TextSendMessage(text="All data cleared from database.")
-                            )
-                    except Exception as e:
-                        logging.error(f"Error clearing database: {e}")
-                        line_bot_api.reply_message(
-                            event.reply_token,
-                            TextSendMessage(text="Failed to clear database.")
-                        )
-                elif command.startswith('addrole'):
-                    # إضافة دور للمستخدم
-                    parts = command.split()
-                    if len(parts) == 4 and is_group_event:
-                        _, target_user_id, role = parts
-                        group_id = event.source.group_id
-                        add_role(group_id, target_user_id, role)
-                        line_bot_api.reply_message(
-                            event.reply_token,
-                            TextSendMessage(text=f"Role '{role}' added for user {target_user_id}.")
-                        )
-                    else:
-                        line_bot_api.reply_message(
-                            event.reply_token,
-                            TextSendMessage(text="Usage: .addrole <user_id> <role>")
-                        )
-                elif command.startswith('getrole'):
-                    # الحصول على دور المستخدم
-                    parts = command.split()
-                    if len(parts) == 2 and is_group_event:
-                        _, target_user_id = parts
-                        group_id = event.source.group_id
-                        role = get_user_role(group_id, target_user_id)
-                        line_bot_api.reply_message(
-                            event.reply_token,
-                            TextSendMessage(text=f"Role of user {target_user_id}: {role}")
-                        )
-                    else:
-                        line_bot_api.reply_message(
-                            event.reply_token,
-                            TextSendMessage(text="Usage: .getrole <user_id>")
-                        )
-                elif command == 'sheets':
-                    # تخزين البيانات في Google Sheets
-                    sheet = init_google_sheets()
-                    data = [user_id, message_id, text, timestamp]
-                    add_to_google_sheets(sheet, data)
-                    line_bot_api.reply_message(
-                        event.reply_token,
-                        TextSendMessage(text="Data stored in Google Sheets.")
-                    )
+    if txt == ".lurk on":
+        lurking = True
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Lurking is now ON."))
+    elif txt == ".lurk off":
+        lurking = False
+        seen_users = []
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Lurking is now OFF."))
+    elif txt == ".break rules":
+        break_rules = not break_rules  # تبديل حالة كسر القواعد
+        if break_rules:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ Rules are now broken! Proceed with caution. You are fully responsible for any consequences. ⚠️"))
         else:
-            # الرد على المستخدمين العاديين
-            if text.strip() == '@All':
-                # طرد المستخدم إذا كتب @All
-                if is_group_event:
-                    group_id = event.source.group_id
-                    try:
-                        kick_user_from_group(group_id, user_id)
-                        line_bot_api.reply_message(
-                            event.reply_token,
-                            TextSendMessage(text="You have been kicked for using @All.")
-                        )
-                    except Exception as e:
-                        line_bot_api.reply_message(
-                            event.reply_token,
-                            TextSendMessage(text="Failed to kick user. Sending warning to admins instead.")
-                        )
-                else:
-                    line_bot_api.reply_message(
-                        event.reply_token,
-                        TextSendMessage(text="Do not use @All outside of groups.")
-                    )
-            else:
-                # الرد التلقائي على الرسائل العادية
-                line_bot_api.reply_message(
-                    event.reply_token,
-                    TextSendMessage(text="Thank you for your message!")
-                )
-    except Exception as e:
-        logging.error(f"Error in handling message: {e}")
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Rules are restored. Normal operation resumed."))
+    else:
+        if lurking:
+            seen_users.append(event.source.user_id)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"User {event.source.user_id} has read the message."))
 
-# تشغيل التطبيق
+        if break_rules:
+            # تنفيذ أفعال خاصة عند كسر القواعد
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ This action is executed under 'Break Rules' mode. You are responsible for any consequences. ⚠️"))
+
+@app.route("/")
+def index():
+    return "Hello, this is a LINE bot."
+
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
+    app.run(port=8000)
