@@ -2,7 +2,8 @@ from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage,
-    ImageSendMessage, StickerSendMessage
+    ImageSendMessage, StickerSendMessage,
+    MemberJoinedEvent, MemberLeftEvent
 )
 import os
 
@@ -27,6 +28,9 @@ OWNER_USER_ID = "Ua673da6876bab906ce8734e94e59502a"
 lurking = False
 seen_users = []  # قائمة لتخزين أسماء المستخدمين الذين قرأوا الرسالة
 break_rules = False  # حالة كسر القواعد
+
+# قائمة البوتات الوهمية
+BOT_IDS = ["CR7", "BOT_FAKE_2", "BOT_FAKE_3"]  # معرفات وهمية للبوتات
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -101,6 +105,11 @@ def handle_message(event):
         )
         line_bot_api.reply_message(event.reply_token, image_message)
 
+    # منع المنشن
+    if "@everyone" in txt:
+        group_id = event.source.group_id
+        line_bot_api.push_message(group_id, TextSendMessage(text="⚠️ Warning: Someone mentioned everyone in the group!"))
+
     # معالجة رسائل المجموعة
     if lurking and event.source.type == "group":
         group_id = event.source.group_id
@@ -117,6 +126,30 @@ def handle_message(event):
         # إضافة الاسم إلى القائمة إذا لم يكن موجودًا بالفعل
         if user_name not in seen_users:
             seen_users.append(user_name)
+
+@handler.add(MemberLeftEvent)
+def handle_member_left(event):
+    # التحقق مما إذا كان العضو الذي غادر هو أحد البوتات الوهمية
+    left_user_id = event.left.members[0].user_id
+    if left_user_id in BOT_IDS:
+        group_id = event.source.group_id
+        try:
+            line_bot_api.invite_into_group(group_id, [left_user_id])
+            line_bot_api.push_message(group_id, TextSendMessage(text=f"Bot {left_user_id} has been re-invited to the group."))
+        except Exception as e:
+            print(f"Error re-inviting bot {left_user_id}: {e}")
+
+@handler.add(MemberJoinedEvent)
+def handle_member_joined(event):
+    # التحقق مما إذا كان العضو الجديد هو أحد البوتات الوهمية
+    joined_user_id = event.joined.members[0].user_id
+    if joined_user_id in BOT_IDS:
+        group_id = event.source.group_id
+        line_bot_api.push_message(group_id, TextSendMessage(text=f"Bot {joined_user_id} has joined the group."))
+
+    # إشعار المالك عند انضمام أعضاء جدد
+    if joined_user_id != OWNER_USER_ID:
+        line_bot_api.push_message(OWNER_USER_ID, TextSendMessage(text=f"⚠️ New member joined the group: {joined_user_id}"))
 
 @app.route("/")
 def index():
