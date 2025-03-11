@@ -46,9 +46,10 @@ def handle_message(event):
     print(f"Message received from user_id: {event.source.user_id}, type: {event.source.type}")
 
     # التحقق من أن الأمر يأتي من المالك فقط
-    if event.source.user_id != OWNER_USER_ID:
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="You are not authorized to use this command."))
-        return
+    if event.message.text.strip() in [".lurk on", ".lurk off", ".wr", ".break rules"]:
+        if event.source.user_id != OWNER_USER_ID:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="You are not authorized to use this command."))
+            return
 
     txt = event.message.text.strip()
 
