@@ -56,6 +56,7 @@ def handle_message(event):
             seen_users = []
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ وضع المراقبة متوقف!"))
         elif txt == ".r":
+            time.sleep(6)  # انتظار 6 ثواني قبل تنفيذ الأمر
             if not seen_users:
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text="🚫 لم يقرأ أحد الرسالة بعد."))
             else:
