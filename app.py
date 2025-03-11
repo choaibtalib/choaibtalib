@@ -71,11 +71,7 @@ def handle_message(event):
         else:
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Rules are restored. Normal operation resumed."))
 
-# معالجة رسائل المجموعة
-@handler.add(MessageEvent, message=TextMessage)
-def handle_group_message(event):
-    global lurking, seen_users
-
+    # معالجة رسائل المجموعة
     if lurking and event.source.type == "group":
         group_id = event.source.group_id
         user_id = event.source.user_id
