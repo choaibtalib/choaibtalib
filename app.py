@@ -1,6 +1,9 @@
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from linebot.models import (
+    MessageEvent, TextMessage, TextSendMessage,
+    ImageSendMessage, StickerSendMessage
+)
 import os
 
 app = Flask(__name__)
@@ -45,14 +48,15 @@ def handle_message(event):
     # تسجيل مصدر الرسالة
     print(f"Message received from user_id: {event.source.user_id}, type: {event.source.type}")
 
-    # التحقق من أن الأمر يأتي من المالك فقط
-    if event.message.text.strip() in [".lurk on", ".lurk off", ".wr", ".break rules"]:
+    txt = event.message.text.strip()
+
+    # أوامر خاصة بالمالك فقط
+    if txt.startswith("."):
         if event.source.user_id != OWNER_USER_ID:
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="You are not authorized to use this command."))
             return
 
-    txt = event.message.text.strip()
-
+    # معالجة الأوامر
     if txt == ".lurk on":
         lurking = True
         seen_users = []  # تفريغ القائمة عند تفعيل وضع التتبع
@@ -65,15 +69,37 @@ def handle_message(event):
         if not seen_users:
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="No users have read the message yet."))
         else:
-            # إرسال قائمة الأسماء
             names_list = "\n".join(seen_users)
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"Users who read the message:\n{names_list}"))
     elif txt == ".break rules":
-        break_rules = not break_rules  # تبديل حالة كسر القواعد
+        break_rules = not break_rules
         if break_rules:
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ Rules are now broken! Proceed with caution. You are fully responsible for any consequences. ⚠️"))
         else:
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Rules are restored. Normal operation resumed."))
+    elif txt == ".help":
+        help_message = """Available commands:
+- .lurk on: Enable lurking mode.
+- .lurk off: Disable lurking mode.
+- .wr: Show users who read the message.
+- .break rules: Toggle breaking rules mode.
+- .sticker: Send a random sticker.
+- .image: Send an image."""
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=help_message))
+    elif txt == ".sticker":
+        # إرسال ملصق عشوائي
+        sticker_message = StickerSendMessage(
+            package_id='11537',
+            sticker_id='52002734'
+        )
+        line_bot_api.reply_message(event.reply_token, sticker_message)
+    elif txt == ".image":
+        # إرسال صورة
+        image_message = ImageSendMessage(
+            original_content_url='https://example.com/image.jpg',
+            preview_image_url='https://example.com/image_preview.jpg'
+        )
+        line_bot_api.reply_message(event.reply_token, image_message)
 
     # معالجة رسائل المجموعة
     if lurking and event.source.type == "group":
@@ -86,7 +112,7 @@ def handle_message(event):
             user_name = profile.display_name
         except Exception as e:
             print(f"Error fetching profile for user_id {user_id}: {e}")
-            user_name = "Unknown User"  # في حالة فشل استخراج الاسم
+            user_name = "Unknown User"
 
         # إضافة الاسم إلى القائمة إذا لم يكن موجودًا بالفعل
         if user_name not in seen_users:
