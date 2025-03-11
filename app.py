@@ -21,12 +21,14 @@ handler = WebhookHandler(LINE_CHANNEL_SECRET)
 lurking = False
 seen_users = []
 
+
 def get_user_name(group_id, user_id):
     try:
         profile = line_bot_api.get_group_member_profile(group_id, user_id)
         return profile.display_name
     except:
         return f"User-{user_id}"  # اسم افتراضي في حال فشل جلب الاسم
+
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -38,6 +40,7 @@ def callback():
         print(f'Error: {e}')
         abort(400)
     return 'OK'
+
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
@@ -56,7 +59,7 @@ def handle_message(event):
             seen_users = []
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ وضع المراقبة متوقف!"))
         elif txt == ".r":
-            time.sleep(6)  # انتظار 6 ثواني قبل تنفيذ الأمر
+            time.sleep(2)  # انتظار 2 ثانية قبل تنفيذ الأمر
             if not seen_users:
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text="🚫 لم يقرأ أحد الرسالة بعد."))
             else:
@@ -67,6 +70,10 @@ def handle_message(event):
         user_name = get_user_name(group_id, user_id)
         if not any(user['user_id'] == user_id for user in seen_users):
             seen_users.append({'name': user_name, 'user_id': user_id, 'timestamp': time.time()})
+    
+    # فرض تسجيل القراءة عبر رسالة مخفية
+    if lurking and group_id and txt != "":
+        seen_users.append({'name': get_user_name(group_id, user_id), 'user_id': user_id, 'timestamp': time.time()})
 
 if __name__ == "__main__":
     app.run(port=8000)
