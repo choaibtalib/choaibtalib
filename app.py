@@ -11,7 +11,6 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-# قراءة المتغيرات البيئية
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
 LINE_CHANNEL_SECRET = os.getenv('LINE_CHANNEL_SECRET')
 
@@ -81,7 +80,7 @@ def show_readers(reply_token):
         line_bot_api.reply_message(reply_token, TextSendMessage(text="No users have read the message yet."))
     else:
         readers_message = "\n".join(
-            [f"👤 {u['name']} (ID: {u['user_id']})\n   📱 Read at: {datetime.fromtimestamp(u['timestamp']).strftime('%Y-%m-%d %H:%M:%S')}" for u in seen_users]
+            [f"👤 {u['full_name']} (ID: {u['user_id']})\n   📱 Read at: {datetime.fromtimestamp(u['timestamp']).strftime('%Y-%m-%d %H:%M:%S')}" for u in seen_users]
         )
         line_bot_api.reply_message(reply_token, TextSendMessage(text=f"👥 Readers:\n\n{readers_message}"))
 
@@ -117,10 +116,12 @@ def track_readers(event):
     try:
         profile = line_bot_api.get_group_member_profile(group_id, user_id)
         user_name = profile.display_name
+        user_full_name = profile.display_name  # هنا يتم جلب الاسم الكامل
     except:
         user_name = f"User-{user_id}"
+        user_full_name = f"User-{user_id}"
     if not any(u['user_id'] == user_id for u in seen_users):
-        seen_users.append({'name': user_name, 'user_id': user_id, 'timestamp': time.time()})
+        seen_users.append({'name': user_name, 'full_name': user_full_name, 'user_id': user_id, 'timestamp': time.time()})
 
 def reinvite_bot(group_id, bot_id):
     try:
