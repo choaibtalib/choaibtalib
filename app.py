@@ -42,6 +42,9 @@ def callback():
 def handle_message(event):
     global lurking, seen_users, break_rules
 
+    # تسجيل مصدر الرسالة
+    print(f"Message received from user_id: {event.source.user_id}, type: {event.source.type}")
+
     # التحقق من أن الأمر يأتي من المالك فقط
     if event.source.user_id != OWNER_USER_ID:
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="You are not authorized to use this command."))
@@ -81,6 +84,7 @@ def handle_message(event):
             profile = line_bot_api.get_group_member_profile(group_id, user_id)
             user_name = profile.display_name
         except Exception as e:
+            print(f"Error fetching profile for user_id {user_id}: {e}")
             user_name = "Unknown User"  # في حالة فشل استخراج الاسم
 
         # إضافة الاسم إلى القائمة إذا لم يكن موجودًا بالفعل
