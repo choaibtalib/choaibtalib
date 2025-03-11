@@ -30,7 +30,7 @@ seen_users = []  # قائمة لتخزين أسماء المستخدمين ال�
 break_rules = False  # حالة كسر القواعد
 
 # قائمة البوتات الوهمية
-BOT_IDS = ["CR7", "BOT_FAKE_2", "BOT_FAKE_3"]  # معرفات وهمية للبوتات
+BOT_IDS = ["BOT_FAKE_1", "BOT_FAKE_2", "BOT_FAKE_3"]  # معرفات وهمية للبوتات
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -94,7 +94,7 @@ def handle_message(event):
         # إرسال ملصق عشوائي
         sticker_message = StickerSendMessage(
             package_id='11537',
-            sticker_id='52002734'
+            sticker_id='20153355'
         )
         line_bot_api.reply_message(event.reply_token, sticker_message)
     elif txt == ".image":
@@ -106,9 +106,20 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, image_message)
 
     # منع المنشن
-    if "@everyone" in txt:
+    if "@All" in txt:
         group_id = event.source.group_id
-        line_bot_api.push_message(group_id, TextSendMessage(text="⚠️ Warning: Someone mentioned everyone in the group!"))
+        user_id = event.source.user_id
+
+        # إشعار بمحاولة كتابة @All
+        line_bot_api.push_message(group_id, TextSendMessage(text="⚠️ Warning: Someone tried to mention everyone in the group!"))
+
+        # طرد العضو الذي كتب @All
+        try:
+            line_bot_api.kick_out_from_group(group_id, user_id)
+            line_bot_api.push_message(group_id, TextSendMessage(text="⚠️ The member has been kicked for mentioning everyone."))
+        except Exception as e:
+            print(f"Error kicking user {user_id}: {e}")
+            line_bot_api.push_message(group_id, TextSendMessage(text="⚠️ Failed to kick the member. Ensure the bot has admin privileges."))
 
     # معالجة رسائل المجموعة
     if lurking and event.source.type == "group":
@@ -121,7 +132,8 @@ def handle_message(event):
             user_name = profile.display_name
         except Exception as e:
             print(f"Error fetching profile for user_id {user_id}: {e}")
-            user_name = "Unknown User"
+            # إذا لم يتمكن من الحصول على الاسم، استخدم النص الكامل للرسالة كاسم
+            user_name = event.message.text.split()[0] if event.message.text else "Unknown User"
 
         # إضافة الاسم إلى القائمة إذا لم يكن موجودًا بالفعل
         if user_name not in seen_users:
