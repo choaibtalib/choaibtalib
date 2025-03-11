@@ -1,126 +1,34 @@
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
-from linebot.models import (
-    MessageEvent, TextMessage, TextSendMessage,
-    ImageSendMessage, StickerSendMessage
-)
-import os
+from linebot.exceptions import InvalidSignatureError
+from linebot.models import TextMessage, TextSendMessage
 
 app = Flask(__name__)
 
-# قراءة المتغيرات البيئية
-LINE_CHANNEL_ACCESS_TOKEN = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
-LINE_CHANNEL_SECRET = os.getenv('LINE_CHANNEL_SECRET')
-
-# التحقق من وجود القيم
-if not LINE_CHANNEL_ACCESS_TOKEN or not LINE_CHANNEL_SECRET:
-    raise ValueError("Please set LINE_CHANNEL_ACCESS_TOKEN and LINE_CHANNEL_SECRET in your environment variables.")
-
-# استخدام القيم
-line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
-handler = WebhookHandler(LINE_CHANNEL_SECRET)
-
-# معرف المالك (يستطيع إرسال الأوامر فقط)
-OWNER_USER_ID = "Ua673da6876bab906ce8734e94e59502a"
-
-# حالات البوت
-lurking = False
-seen_users = []  # قائمة لتخزين أسماء المستخدمين الذين قرأوا الرسالة
-break_rules = False  # حالة كسر القواعد
+# إعداد الـ Channel Secret و الـ Access Token
+line_bot_api = LineBotApi('OGuV9/KT+JED14YLuEYZuyhi+BCCZfTSpRUD+OQzp3HXMQpvob/UteHHf10JOeNMz5sRMtXPH0/bNDdVtXfjno1tZGqIsJ4whziPkw4CO5VECZT56SaaFsRrvHI5wBPFNs6iFJIcfHSptnKZNcsnmgdB04t89/1O/w1cDnyilFU=')
+handler = WebhookHandler('7d0ad0324f874c8574f15058646fa067')
 
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
+
     body = request.get_data(as_text=True)
 
     try:
         handler.handle(body, signature)
-    except Exception as e:
-        print(f'Error: {e}')
+    except InvalidSignatureError:
         abort(400)
 
     return 'OK'
 
-@handler.add(MessageEvent, message=TextMessage)
-def handle_message(event):
-    global lurking, seen_users, break_rules
-
-    # تسجيل مصدر الرسالة
-    print(f"Message received from user_id: {event.source.user_id}, type: {event.source.type}")
-
-    txt = event.message.text.strip()
-
-    # أوامر خاصة بالمالك فقط
-    if txt.startswith("."):
-        if event.source.user_id != OWNER_USER_ID:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="You are not authorized to use this command."))
-            return
-
-    # معالجة الأوامر
-    if txt == ".lurk on":
-        lurking = True
-        seen_users = []  # تفريغ القائمة عند تفعيل وضع التتبع
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Lurking is now ON."))
-    elif txt == ".lurk off":
-        lurking = False
-        seen_users = []  # حذف جميع الأسماء عند إيقاف وضع التتبع
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Lurking is now OFF. Data cleared."))
-    elif txt == ".wr":
-        if not seen_users:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="No users have read the message yet."))
-        else:
-            names_list = "\n".join(seen_users)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"Users who read the message:\n{names_list}"))
-    elif txt == ".break rules":
-        break_rules = not break_rules
-        if break_rules:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ Rules are now broken! Proceed with caution. You are fully responsible for any consequences. ⚠️"))
-        else:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Rules are restored. Normal operation resumed."))
-    elif txt == ".help":
-        help_message = """Available commands:
-- .lurk on: Enable lurking mode.
-- .lurk off: Disable lurking mode.
-- .wr: Show users who read the message.
-- .break rules: Toggle breaking rules mode.
-- .sticker: Send a random sticker.
-- .image: Send an image."""
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=help_message))
-    elif txt == ".sticker":
-        # إرسال ملصق عشوائي
-        sticker_message = StickerSendMessage(
-            package_id='11537',
-            sticker_id='52002734'
-        )
-        line_bot_api.reply_message(event.reply_token, sticker_message)
-    elif txt == ".image":
-        # إرسال صورة
-        image_message = ImageSendMessage(
-            original_content_url='https://example.com/image.jpg',
-            preview_image_url='https://example.com/image_preview.jpg'
-        )
-        line_bot_api.reply_message(event.reply_token, image_message)
-
-    # معالجة رسائل المجموعة
-    if lurking and event.source.type == "group":
-        group_id = event.source.group_id
-        user_id = event.source.user_id
-
-        try:
-            # الحصول على اسم المستخدم من المجموعة
-            profile = line_bot_api.get_group_member_profile(group_id, user_id)
-            user_name = profile.display_name
-        except Exception as e:
-            print(f"Error fetching profile for user_id {user_id}: {e}")
-            user_name = "Unknown User"
-
-        # إضافة الاسم إلى القائمة إذا لم يكن موجودًا بالفعل
-        if user_name not in seen_users:
-            seen_users.append(user_name)
-
-@app.route("/")
-def index():
-    return "Hello, this is a LINE bot."
+@handler.default()
+def default(event):
+    # استجابة لكل رسالة
+    if isinstance(event.message, TextMessage):
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text='مرحباً! كيف يمكنني مساعدتك؟'))
 
 if __name__ == "__main__":
-    app.run(port=8000)
+    app.run()
