@@ -30,7 +30,7 @@ seen_users = []  # قائمة لتخزين أسماء المستخدمين ال�
 break_rules = False  # حالة كسر القواعد
 
 # قائمة البوتات الوهمية
-BOT_IDS = ["BOT_FAKE_1", "BOT_FAKE_2", "BOT_FAKE_3"]  # معرفات وهمية للبوتات
+BOT_IDS = {}  # سيتم تخزين البوتات الوهمية هنا (المفتاح: اسم البوت، القيمة: معرف البوت الوهمي)
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -47,7 +47,7 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    global lurking, seen_users, break_rules
+    global lurking, seen_users, break_rules, BOT_IDS
 
     # تسجيل مصدر الرسالة
     print(f"Message received from user_id: {event.source.user_id}, type: {event.source.type}")
@@ -75,35 +75,47 @@ def handle_message(event):
         else:
             names_list = "\n".join(seen_users)
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"Users who read the message:\n{names_list}"))
-    elif txt == ".break rules":
-        break_rules = not break_rules
-        if break_rules:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ Rules are now broken! Proceed with caution. You are fully responsible for any consequences. ⚠️"))
+    elif txt.startswith(".addbot"):
+        # إضافة بوت وهمي
+        bot_name = txt.split(" ", 1)[1].strip() if len(txt.split()) > 1 else None
+        if not bot_name:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Usage: .addbot <bot_name>"))
+            return
+
+        fake_bot_id = f"FAKE_BOT_{len(BOT_IDS) + 1}"  # إنشاء معرف وهمي
+        BOT_IDS[bot_name] = fake_bot_id
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"Bot '{bot_name}' added with ID: {fake_bot_id}"))
+    elif txt.startswith(".bots"):
+        # عرض قائمة البوتات الوهمية
+        if not BOT_IDS:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="No fake bots added yet."))
         else:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Rules are restored. Normal operation resumed."))
-    elif txt == ".help":
-        help_message = """Available commands:
-- .lurk on: Enable lurking mode.
-- .lurk off: Disable lurking mode.
-- .wr: Show users who read the message.
-- .break rules: Toggle breaking rules mode.
-- .sticker: Send a random sticker.
-- .image: Send an image."""
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=help_message))
-    elif txt == ".sticker":
-        # إرسال ملصق عشوائي
-        sticker_message = StickerSendMessage(
-            package_id='11537',
-            sticker_id='20153355'
-        )
-        line_bot_api.reply_message(event.reply_token, sticker_message)
-    elif txt == ".image":
-        # إرسال صورة
-        image_message = ImageSendMessage(
-            original_content_url='https://example.com/image.jpg',
-            preview_image_url='https://example.com/image_preview.jpg'
-        )
-        line_bot_api.reply_message(event.reply_token, image_message)
+            bots_list = "\n".join([f"{name}: {id}" for name, id in BOT_IDS.items()])
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"Fake bots list:\n{bots_list}"))
+    elif txt.startswith(".task"):
+        # توزيع مهمة على بوت وهمي
+        parts = txt.split(" ", 2)
+        if len(parts) < 3:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Usage: .task <bot_name> <message>"))
+            return
+
+        bot_name = parts[1]
+        task_message = parts[2]
+
+        if bot_name not in BOT_IDS:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"Bot '{bot_name}' not found."))
+            return
+
+        fake_bot_id = BOT_IDS[bot_name]
+        group_id = event.source.group_id
+
+        # إرسال رسالة من البوت الوهمي
+        try:
+            line_bot_api.push_message(group_id, TextSendMessage(text=f"[{bot_name}] says: {task_message}"))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"Task assigned to bot '{bot_name}'."))
+        except Exception as e:
+            print(f"Error assigning task to bot {bot_name}: {e}")
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"Failed to assign task to bot '{bot_name}'."))
 
     # منع المنشن
     if "@All" in txt:
@@ -143,7 +155,7 @@ def handle_message(event):
 def handle_member_left(event):
     # التحقق مما إذا كان العضو الذي غادر هو أحد البوتات الوهمية
     left_user_id = event.left.members[0].user_id
-    if left_user_id in BOT_IDS:
+    if left_user_id in BOT_IDS.values():
         group_id = event.source.group_id
         try:
             line_bot_api.invite_into_group(group_id, [left_user_id])
@@ -155,7 +167,7 @@ def handle_member_left(event):
 def handle_member_joined(event):
     # التحقق مما إذا كان العضو الجديد هو أحد البوتات الوهمية
     joined_user_id = event.joined.members[0].user_id
-    if joined_user_id in BOT_IDS:
+    if joined_user_id in BOT_IDS.values():
         group_id = event.source.group_id
         line_bot_api.push_message(group_id, TextSendMessage(text=f"Bot {joined_user_id} has joined the group."))
 
