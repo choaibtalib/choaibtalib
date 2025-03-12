@@ -8,3 +8,4 @@ textblob
 gspread
 oauth2client
 selenium==4.15.2
+requests==2.31.0
