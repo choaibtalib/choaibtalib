@@ -7,3 +7,4 @@ linepy
 textblob
 gspread
 oauth2client
+selenium==4.15.2
