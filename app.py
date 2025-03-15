@@ -1,12 +1,13 @@
+import os
 import sqlite3
 from linepy import *
+from flask import Flask, request, jsonify
 import time
 import logging
 import threading
-import os
 from datetime import datetime
 
-# إعداد السجل (Logging) لتتبع العمليات بتفصيل
+# إعداد السجل (Logging)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -16,21 +17,40 @@ logging.basicConfig(
     ]
 )
 
-# المتغيرات العامة (قابلة للتعديل)
-GROUP_ID = 'YOUR_GROUP_ID'  # استبدل بمعرف المجموعة
-EMAIL = 'your_email@example.com'  # بريدك في LINE
-PASSWORD = 'your_password'  # كلمة المرور
-DB_NAME = 'group_data.db'  # اسم قاعدة البيانات
+# قراءة المتغيرات البيئية
+CHANNEL_ACCESS_TOKEN = os.getenv('CHANNEL_ACCESS_TOKEN', 'OGuV9/KT+JED14YLuEYZuyhi+BCCZfTSpRUD+OQzp3HXMQpvob/UteHHf10JOeNMz5sRMtXPH0/bNDdVtXfjno1tZGqIsJ4whziPkw4CO5VECZT56SaaFsRrvHI5wBPFNs6iFJIcfHSptnKZNcsnmgdB04t89/1O/w1cDnyilFU=')
+CHANNEL_SECRET = os.getenv('CHANNEL_SECRET', '7d0ad0324f874c8574f15058646fa067')
+DB_NAME = 'group_data.db'
 
-# الاتصال بـ LINE
+# التحقق من وجود المتغيرات البيئية
+if not all([CHANNEL_ACCESS_TOKEN, CHANNEL_SECRET]):
+    logging.error("لم يتم العثور على جميع المتغيرات البيئية المطلوبة.")
+    exit(1)
+
+# الاتصال بـ LINE باستخدام Channel Access Token
 def connect_to_line():
     """الاتصال بحساب LINE باستخدام Linepy"""
     try:
-        line = LINE(EMAIL, PASSWORD)
+        line = LINE(channelAccessToken=CHANNEL_ACCESS_TOKEN)
         logging.info(f"تم الاتصال بنجاح، اسم المستخدم: {line.profile.displayName}")
         return line
     except Exception as e:
         logging.error(f"فشل الاتصال بـ LINE: {e}")
+        return None
+
+# الحصول على معرف المجموعة تلقائيًا
+def get_group_id(line):
+    """استخراج معرف المجموعة الأولى التي ينتمي إليها البوت"""
+    try:
+        group_ids = line.getGroupIdsJoined()
+        if not group_ids:
+            logging.error("البوت ليس عضوًا في أي مجموعة.")
+            return None
+        group_id = group_ids[0]  # اختيار المجموعة الأولى
+        logging.info(f"تم استخراج معرف المجموعة: {group_id}")
+        return group_id
+    except Exception as e:
+        logging.error(f"خطأ في استخراج معرف المجموعة: {e}")
         return None
 
 # إعداد قاعدة البيانات
@@ -83,7 +103,6 @@ def track_readers(line, group_id, msg_id, conn, cursor):
     while True:
         try:
             group = line.getGroup(group_id)
-            # ملاحظة: هذه دالة افتراضية، تحقق من Linepy إذا كانت متاحة
             read_count = getattr(group, 'getReadCount', lambda x: 0)(msg_id)  # إذا لم تكن موجودة، يرجع 0
             if read_count != last_read_count:
                 cursor.execute("UPDATE messages SET read_count = ? WHERE msg_id = ?", (read_count, msg_id))
@@ -105,25 +124,25 @@ def infer_readers(conn, cursor, read_count):
         logging.info("القراء المحتملون (استنتاج):")
         for mid, name in possible_readers:
             logging.info(f"- {name} (MID: {mid})")
-            # تحديث الحالة إلى 'قارئ محتمل'
             cursor.execute("UPDATE members SET status = 'possible_reader' WHERE mid = ?", (mid,))
         conn.commit()
 
-# تعليمات Wireshark (يدوية)
-def wireshark_instructions():
-    """تعليمات لاستخدام Wireshark مع البوت"""
-    instructions = """
-    تعليمات Wireshark لتحليل القراء الصامتين:
-    1. شغل Wireshark واختر واجهة الشبكة (مثل Wi-Fi).
-    2. ضع فلتر مثل: `ip.dst == line.me || ip.dst == api.line.me`.
-    3. افتح LINE على هاتفك (نفس الشبكة) وأرسل رسالة للمجموعة.
-    4. راقب الحزم عندما يتغير عدد القراء في السجل (bot_log.log).
-    5. ابحث عن أنماط (مثل حزم HTTPS متكررة تحمل أيديات أو طلبات تحديث).
-    6. قارن توقيت الحزم مع تغييرات عدد القراء لتحديد القراء الصامتين.
-    ملاحظة: البيانات مشفرة، لكن التوقيت والعدد قد يعطيان استنتاجات.
-    """
-    print(instructions)
-    logging.info("تم عرض تعليمات Wireshark")
+# إعداد Flask لتلقي طلبات الويبهووك
+app = Flask(__name__)
+
+@app.route("/callback", methods=['POST'])
+def callback():
+    """معالجة طلبات الويبهووك من LINE"""
+    body = request.get_data(as_text=True)
+    signature = request.headers['X-Line-Signature']
+    
+    try:
+        handler.handle(body, signature)
+    except Exception as e:
+        logging.error(f"خطأ في معالجة الويبهووك: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+    
+    return jsonify({"status": "success"}), 200
 
 # تشغيل البوت في خيط منفصل
 def run_bot():
@@ -132,27 +151,23 @@ def run_bot():
     if not line:
         return
     
+    # استخراج معرف المجموعة تلقائيًا
+    group_id = get_group_id(line)
+    if not group_id:
+        logging.error("لا يمكن متابعة التشغيل بدون معرف المجموعة.")
+        return
+    
     conn, cursor = setup_database()
-    fetch_and_store_members(line, GROUP_ID, conn, cursor)
-    msg_id = send_test_message(line, GROUP_ID, conn, cursor)
+    fetch_and_store_members(line, group_id, conn, cursor)
+    msg_id = send_test_message(line, group_id, conn, cursor)
     
     if msg_id:
-        # تشغيل تتبع القراء في خيط منفصل
-        tracker_thread = threading.Thread(target=track_readers, args=(line, GROUP_ID, msg_id, conn, cursor))
+        tracker_thread = threading.Thread(target=track_readers, args=(line, group_id, msg_id, conn, cursor))
         tracker_thread.daemon = True
         tracker_thread.start()
         logging.info("بدأ تتبع القراء في الخلفية")
     
-    # عرض تعليمات Wireshark
-    wireshark_instructions()
-    
-    # إبقاء البرنامج شغالًا
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        logging.info("تم إيقاف البوت")
-        conn.close()
+    app.run(host="0.0.0.0", port=int(os.getenv('PORT', 5000)))
 
 # البرنامج الرئيسي
 if __name__ == "__main__":
