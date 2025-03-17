@@ -1,6 +1,8 @@
 import os
 import sqlite3
-from linepy import *
+from linebot import LineBotApi, WebhookHandler
+from linebot.exceptions import InvalidSignatureError
+from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from flask import Flask, request, jsonify
 import time
 import logging
@@ -17,9 +19,9 @@ logging.basicConfig(
     ]
 )
 
-# قراءة المتغيرات البيئية
-CHANNEL_ACCESS_TOKEN = os.getenv('CHANNEL_ACCESS_TOKEN', 'OGuV9/KT+JED14YLuEYZuyhi+BCCZfTSpRUD+OQzp3HXMQpvob/UteHHf10JOeNMz5sRMtXPH0/bNDdVtXfjno1tZGqIsJ4whziPkw4CO5VECZT56SaaFsRrvHI5wBPFNs6iFJIcfHSptnKZNcsnmgdB04t89/1O/w1cDnyilFU=')
-CHANNEL_SECRET = os.getenv('CHANNEL_SECRET', '7d0ad0324f874c8574f15058646fa067')
+# قراءة المتغيرات البيئية أو استخدام قيم افتراضية
+CHANNEL_ACCESS_TOKEN = 'OGuV9/KT+JED14YLuEYZuyhi+BCCZfTSpRUD+OQzp3HXMQpvob/UteHHf10JOeNMz5sRMtXPH0/bNDdVtXfjno1tZGqIsJ4whziPkw4CO5VECZT56SaaFsRrvHI5wBPFNs6iFJIcfHSptnKZNcsnmgdB04t89/1O/w1cDnyilFU='
+CHANNEL_SECRET = '7d0ad0324f874c8574f15058646fa067'
 DB_NAME = 'group_data.db'
 
 # التحقق من وجود المتغيرات البيئية
@@ -27,31 +29,9 @@ if not all([CHANNEL_ACCESS_TOKEN, CHANNEL_SECRET]):
     logging.error("لم يتم العثور على جميع المتغيرات البيئية المطلوبة.")
     exit(1)
 
-# الاتصال بـ LINE باستخدام Channel Access Token
-def connect_to_line():
-    """الاتصال بحساب LINE باستخدام Linepy"""
-    try:
-        line = LINE(channelAccessToken=CHANNEL_ACCESS_TOKEN)
-        logging.info(f"تم الاتصال بنجاح، اسم المستخدم: {line.profile.displayName}")
-        return line
-    except Exception as e:
-        logging.error(f"فشل الاتصال بـ LINE: {e}")
-        return None
-
-# الحصول على معرف المجموعة تلقائيًا
-def get_group_id(line):
-    """استخراج معرف المجموعة الأولى التي ينتمي إليها البوت"""
-    try:
-        group_ids = line.getGroupIdsJoined()
-        if not group_ids:
-            logging.error("البوت ليس عضوًا في أي مجموعة.")
-            return None
-        group_id = group_ids[0]  # اختيار المجموعة الأولى
-        logging.info(f"تم استخراج معرف المجموعة: {group_id}")
-        return group_id
-    except Exception as e:
-        logging.error(f"خطأ في استخراج معرف المجموعة: {e}")
-        return None
+# الاتصال بـ LINE باستخدام Channel Access Token وChannel Secret
+line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
+handler = WebhookHandler(CHANNEL_SECRET)
 
 # إعداد قاعدة البيانات
 def setup_database():
@@ -66,27 +46,13 @@ def setup_database():
     logging.info("تم إعداد قاعدة البيانات بنجاح")
     return conn, c
 
-# جلب وتخزين أعضاء المجموعة
-def fetch_and_store_members(line, group_id, conn, cursor):
-    """جلب بيانات الأعضاء وحفظها في قاعدة البيانات"""
-    try:
-        group = line.getGroup(group_id)
-        members = group.members
-        for member in members:
-            cursor.execute("INSERT OR REPLACE INTO members (mid, name, last_seen, status) VALUES (?, ?, ?, ?)",
-                          (member.mid, member.displayName, int(time.time()), "unknown"))
-        conn.commit()
-        logging.info(f"تم حفظ {len(members)} عضو في قاعدة البيانات")
-    except Exception as e:
-        logging.error(f"خطأ في جلب الأعضاء: {e}")
-
 # إرسال رسالة اختبار
-def send_test_message(line, group_id, conn, cursor):
+def send_test_message(group_id, conn, cursor):
     """إرسال رسالة لتتبع القراء وحفظها"""
     message = f"رسالة اختبار - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     try:
-        msg = line.sendMessage(group_id, message)
-        msg_id = msg.id
+        msg = line_bot_api.push_message(group_id, TextSendMessage(text=message))
+        msg_id = msg.message_id
         cursor.execute("INSERT INTO messages (msg_id, content, read_count, timestamp) VALUES (?, ?, ?, ?)",
                       (msg_id, message, 0, int(time.time())))
         conn.commit()
@@ -97,12 +63,12 @@ def send_test_message(line, group_id, conn, cursor):
         return None
 
 # تتبع عدد القراء وتحديث قاعدة البيانات
-def track_readers(line, group_id, msg_id, conn, cursor):
+def track_readers(group_id, msg_id, conn, cursor):
     """تتبع عدد القراء باستخدام Linepy (محدود)"""
     last_read_count = 0
     while True:
         try:
-            group = line.getGroup(group_id)
+            group = line_bot_api.get_group_summary(group_id)
             read_count = getattr(group, 'getReadCount', lambda x: 0)(msg_id)  # إذا لم تكن موجودة، يرجع 0
             if read_count != last_read_count:
                 cursor.execute("UPDATE messages SET read_count = ? WHERE msg_id = ?", (read_count, msg_id))
@@ -138,35 +104,31 @@ def callback():
     
     try:
         handler.handle(body, signature)
+    except InvalidSignatureError:
+        logging.error("خطأ في التوقيع: التوقيع غير صالح.")
+        return jsonify({"status": "error", "message": "Invalid signature"}), 400
     except Exception as e:
         logging.error(f"خطأ في معالجة الويبهووك: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
     
     return jsonify({"status": "success"}), 200
 
+@handler.add(MessageEvent, message=TextMessage)
+def handle_message(event):
+    """معالجة الرسائل النصية القادمة"""
+    user_message = event.message.text
+    logging.info(f"تم استقبال رسالة: {user_message}")
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage(text=f"لقد قلت: {user_message}")
+    )
+
 # تشغيل البوت في خيط منفصل
 def run_bot():
     """تشغيل البوت الرئيسي"""
-    line = connect_to_line()
-    if not line:
-        return
-    
-    # استخراج معرف المجموعة تلقائيًا
-    group_id = get_group_id(line)
-    if not group_id:
-        logging.error("لا يمكن متابعة التشغيل بدون معرف المجموعة.")
-        return
-    
     conn, cursor = setup_database()
-    fetch_and_store_members(line, group_id, conn, cursor)
-    msg_id = send_test_message(line, group_id, conn, cursor)
     
-    if msg_id:
-        tracker_thread = threading.Thread(target=track_readers, args=(line, group_id, msg_id, conn, cursor))
-        tracker_thread.daemon = True
-        tracker_thread.start()
-        logging.info("بدأ تتبع القراء في الخلفية")
-    
+    # بدء تشغيل Flask
     app.run(host="0.0.0.0", port=int(os.getenv('PORT', 5000)))
 
 # البرنامج الرئيسي
