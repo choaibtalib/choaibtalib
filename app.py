@@ -93,6 +93,59 @@ def infer_readers(conn, cursor, read_count):
             cursor.execute("UPDATE members SET status = 'possible_reader' WHERE mid = ?", (mid,))
         conn.commit()
 
+# معالجة الأوامر النصية
+@handler.add(MessageEvent, message=TextMessage)
+def handle_message(event):
+    """معالجة الرسائل النصية القادمة"""
+    user_message = event.message.text.strip()
+    logging.info(f"تم استقبال رسالة: {user_message}")
+
+    # إذا كان الأمر هو ".r"، نعرض القراء
+    if user_message == ".r":
+        show_readers(event)
+    else:
+        # الرد على الرسائل الأخرى
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=f"لقد قلت: {user_message}")
+        )
+
+# عرض القراء
+def show_readers(event):
+    """عرض الأشخاص الذين قرأوا آخر رسالة"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    # الحصول على آخر رسالة
+    cursor.execute("SELECT msg_id, read_count FROM messages ORDER BY timestamp DESC LIMIT 1")
+    last_message = cursor.fetchone()
+
+    if not last_message:
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="لا توجد رسائل سابقة.")
+        )
+        return
+
+    last_msg_id, read_count = last_message
+
+    # الحصول على القراء المحتملين
+    cursor.execute("SELECT name FROM members WHERE status = 'possible_reader' LIMIT ?", (read_count,))
+    readers = cursor.fetchall()
+
+    if not readers:
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="لم يتم العثور على قراء لهذه الرسالة.")
+        )
+    else:
+        readers_list = "\n".join([reader[0] for reader in readers])
+        reply_text = f"عدد القراء: {read_count}\nأسماء القراء:\n{readers_list}"
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=reply_text)
+        )
+
 # إعداد Flask لتلقي طلبات الويبهووك
 app = Flask(__name__)
 
@@ -112,16 +165,6 @@ def callback():
         return jsonify({"status": "error", "message": str(e)}), 500
     
     return jsonify({"status": "success"}), 200
-
-@handler.add(MessageEvent, message=TextMessage)
-def handle_message(event):
-    """معالجة الرسائل النصية القادمة"""
-    user_message = event.message.text
-    logging.info(f"تم استقبال رسالة: {user_message}")
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=f"لقد قلت: {user_message}")
-    )
 
 # تشغيل البوت في خيط منفصل
 def run_bot():
