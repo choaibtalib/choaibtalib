@@ -1,7 +1,7 @@
 import os
 import sqlite3
 from linebot import LineBotApi, WebhookHandler
-from linebot.exceptions import InvalidSignatureError
+from linebot.exceptions import InvalidSignatureError, LineBotApiError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from flask import Flask, request, jsonify
 import time
@@ -38,10 +38,15 @@ def setup_database():
     """إنشاء جداول لتخزين الأعضاء والرسائل"""
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
+    
+    # إنشاء جدول الأعضاء
     c.execute('''CREATE TABLE IF NOT EXISTS members 
                  (mid TEXT PRIMARY KEY, name TEXT, last_seen INTEGER, status TEXT)''')
+    
+    # إنشاء جدول الرسائل
     c.execute('''CREATE TABLE IF NOT EXISTS messages 
                  (msg_id TEXT PRIMARY KEY, content TEXT, read_count INTEGER, timestamp INTEGER)''')
+    
     conn.commit()
     logging.info("تم إعداد قاعدة البيانات بنجاح")
     return conn, c
@@ -62,54 +67,6 @@ def send_test_message(group_id, conn, cursor):
         logging.error(f"خطأ في إرسال الرسالة: {e}")
         return None
 
-# تتبع عدد القراء وتحديث قاعدة البيانات
-def track_readers(group_id, msg_id, conn, cursor):
-    """تتبع عدد القراء باستخدام Linepy (محدود)"""
-    last_read_count = 0
-    while True:
-        try:
-            group = line_bot_api.get_group_summary(group_id)
-            read_count = getattr(group, 'getReadCount', lambda x: 0)(msg_id)  # إذا لم تكن موجودة، يرجع 0
-            if read_count != last_read_count:
-                cursor.execute("UPDATE messages SET read_count = ? WHERE msg_id = ?", (read_count, msg_id))
-                conn.commit()
-                logging.info(f"تغير عدد القراء إلى: {read_count} في {datetime.now()}")
-                last_read_count = read_count
-                infer_readers(conn, cursor, read_count)
-            time.sleep(5)  # فحص كل 5 ثوانٍ
-        except Exception as e:
-            logging.error(f"خطأ في تتبع القراء: {e}")
-            break
-
-# استنتاج القراء الصامتين
-def infer_readers(conn, cursor, read_count):
-    """محاولة استنتاج من قرأ بناءً على البيانات المتاحة"""
-    cursor.execute("SELECT mid, name FROM members WHERE status = 'unknown' LIMIT ?", (read_count,))
-    possible_readers = cursor.fetchall()
-    if possible_readers:
-        logging.info("القراء المحتملون (استنتاج):")
-        for mid, name in possible_readers:
-            logging.info(f"- {name} (MID: {mid})")
-            cursor.execute("UPDATE members SET status = 'possible_reader' WHERE mid = ?", (mid,))
-        conn.commit()
-
-# معالجة الأوامر النصية
-@handler.add(MessageEvent, message=TextMessage)
-def handle_message(event):
-    """معالجة الرسائل النصية القادمة"""
-    user_message = event.message.text.strip()
-    logging.info(f"تم استقبال رسالة: {user_message}")
-
-    # إذا كان الأمر هو ".r"، نعرض القراء
-    if user_message == ".r":
-        show_readers(event)
-    else:
-        # الرد على الرسائل الأخرى
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=f"لقد قلت: {user_message}")
-        )
-
 # عرض القراء
 def show_readers(event):
     """عرض الأشخاص الذين قرأوا آخر رسالة"""
@@ -121,10 +78,13 @@ def show_readers(event):
     last_message = cursor.fetchone()
 
     if not last_message:
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text="لا توجد رسائل سابقة.")
-        )
+        try:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="لا توجد رسائل سابقة.")
+            )
+        except LineBotApiError as e:
+            logging.error(f"خطأ في الرد على الرسالة: {e}")
         return
 
     last_msg_id, read_count = last_message
@@ -134,17 +94,41 @@ def show_readers(event):
     readers = cursor.fetchall()
 
     if not readers:
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text="لم يتم العثور على قراء لهذه الرسالة.")
-        )
+        try:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="لم يتم العثور على قراء لهذه الرسالة.")
+            )
+        except LineBotApiError as e:
+            logging.error(f"خطأ في الرد على الرسالة: {e}")
     else:
         readers_list = "\n".join([reader[0] for reader in readers])
         reply_text = f"عدد القراء: {read_count}\nأسماء القراء:\n{readers_list}"
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=reply_text)
-        )
+        try:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=reply_text)
+            )
+        except LineBotApiError as e:
+            logging.error(f"خطأ في الرد على الرسالة: {e}")
+
+# معالجة الأوامر النصية
+@handler.add(MessageEvent, message=TextMessage)
+def handle_message(event):
+    """معالجة الرسائل النصية القادمة"""
+    user_message = event.message.text.strip()
+    logging.info(f"تم استقبال رسالة: {user_message}")
+
+    try:
+        if user_message == ".r":
+            show_readers(event)
+        else:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=f"لقد قلت: {user_message}")
+            )
+    except LineBotApiError as e:
+        logging.error(f"خطأ في الرد على الرسالة: {e}")
 
 # إعداد Flask لتلقي طلبات الويبهووك
 app = Flask(__name__)
@@ -165,6 +149,11 @@ def callback():
         return jsonify({"status": "error", "message": str(e)}), 500
     
     return jsonify({"status": "success"}), 200
+
+@app.route("/", methods=['GET'])
+def home():
+    """الصفحة الرئيسية"""
+    return "Welcome to the LINE Bot service!"
 
 # تشغيل البوت في خيط منفصل
 def run_bot():
