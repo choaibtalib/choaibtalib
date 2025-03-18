@@ -1,23 +1,28 @@
-# Plan de développement du bot de protection LINE
+# خطة تطوير نظام البوتات المتعددة لحماية مجموعات LINE
 
-## Configuration et préparation
-- [x] Créer la structure du projet
-- [x] Installer les dépendances nécessaires
-- [x] Configurer l'environnement de développement
+## تحليل المتطلبات
+- [x] تحديد لغة المستخدم
+- [x] تحليل متطلبات نظام البوتات المتعددة
+- [x] تصميم هيكلية النظام متعدد البوتات
 
-## Développement des fonctionnalités
-- [x] Implémenter la connexion à l'API LINE
-- [x] Développer la fonctionnalité de suivi des lecteurs
-- [x] Développer la commande ".r" pour afficher les derniers lecteurs
-- [x] Implémenter la protection contre l'expulsion du propriétaire
-- [x] Ajouter la détection des violations des règles du groupe
+## تطوير البوتات المتخصصة
+- [x] تطوير بوتات الحماية والهجوم المضاد
+- [x] تطوير بوتات مراقبة التاغ الجماعي
+- [x] تطوير بوتات الاستجابة للمالك فقط
+- [x] تطوير بوتات تتبع المتصلين (كبوتات وهمية)
+- [x] تطوير بوتات الرد التلقائي (كبوتات وهمية)
 
-## Test et déploiement
-- [x] Tester les fonctionnalités localement
-- [ ] Déployer le bot sur Render
-- [ ] Configurer le webhook LINE
+## نظام التنسيق والتكامل
+- [x] تنفيذ نظام تنسيق بين البوتات
+- [x] تطوير آلية توزيع المهام مع أمر ".add"
+- [ ] إنشاء نظام تقارير للمالك
 
-## Documentation
-- [x] Rédiger la documentation d'utilisation
-- [x] Préparer les instructions d'installation
-- [x] Créer un guide des commandes disponibles
+## الاختبار والنشر
+- [ ] اختبار النظام محلياً
+- [ ] نشر النظام على Render
+- [ ] تكوين الـ webhook لكل بوت
+
+## التوثيق
+- [ ] إعداد دليل استخدام شامل
+- [ ] توثيق أوامر كل بوت
+- [ ] شرح آلية التنسيق بين البوتات

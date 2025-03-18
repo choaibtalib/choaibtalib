@@ -1,35 +1,36 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-Script pour créer un fichier ZIP du projet LINE Protection Bot
-"""
-
 import os
 import zipfile
 import shutil
 
 def create_zip():
-    """Crée un fichier ZIP du projet en excluant les fichiers sensibles"""
-    project_dir = '/home/ubuntu/line-protection-bot'
-    output_zip = '/home/ubuntu/line-protection-bot.zip'
+    """Crée un fichier zip du projet LINE Multi-Bot System"""
     
-    # Fichiers à exclure
-    exclude_files = ['.env', '.git', '__pycache__']
+    # Définir le répertoire source et le nom du fichier zip
+    source_dir = '/home/ubuntu/line-multi-bot-system'
+    zip_filename = '/home/ubuntu/line-multi-bot-system.zip'
     
-    with zipfile.ZipFile(output_zip, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        for root, dirs, files in os.walk(project_dir):
-            # Exclure les répertoires
-            dirs[:] = [d for d in dirs if d not in exclude_files]
+    # Créer un fichier zip temporaire
+    with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        # Parcourir tous les fichiers et dossiers dans le répertoire source
+        for root, dirs, files in os.walk(source_dir):
+            # Exclure les dossiers __pycache__ et les fichiers .pyc
+            if '__pycache__' in dirs:
+                dirs.remove('__pycache__')
             
+            # Ajouter chaque fichier au zip
             for file in files:
-                if file not in exclude_files and not file.endswith('.pyc'):
+                # Exclure les fichiers .pyc et .env
+                if not file.endswith('.pyc'):
                     file_path = os.path.join(root, file)
-                    arcname = os.path.relpath(file_path, project_dir)
+                    # Calculer le chemin relatif pour le zip
+                    arcname = os.path.relpath(file_path, source_dir)
                     zipf.write(file_path, arcname)
     
-    print(f"Archive créée avec succès: {output_zip}")
-    return output_zip
+    print(f"Fichier zip créé avec succès: {zip_filename}")
+    return zip_filename
 
 if __name__ == "__main__":
     create_zip()
