@@ -1,123 +1,261 @@
 import os
 import json
 from flask import Flask, request, abort
-from datetime import datetime
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage, JoinEvent
+from linebot.models import (
+    MessageEvent, TextMessage, TextSendMessage, JoinEvent, MemberJoinedEvent, MemberLeftEvent
+)
+from datetime import datetime
 
-# تحميل المتغيرات من البيئة
+app = Flask(__name__)
+
 CHANNEL_ACCESS_TOKEN = os.getenv("CHANNEL_ACCESS_TOKEN")
 CHANNEL_SECRET = os.getenv("CHANNEL_SECRET")
-ADMIN_USER_ID = os.getenv("USER_ID")  # أو ADMIN_USER_ID حسب إعدادك
+ADMIN_USER_ID = os.getenv("USER_ID")  # معرف الادمن الرئيسي
 
 if not CHANNEL_ACCESS_TOKEN or not CHANNEL_SECRET or not ADMIN_USER_ID:
-    raise Exception("خطأ: يرجى ضبط CHANNEL_ACCESS_TOKEN و CHANNEL_SECRET و USER_ID في متغيرات البيئة.")
+    raise Exception("يرجى ضبط متغيرات البيئة CHANNEL_ACCESS_TOKEN و CHANNEL_SECRET و USER_ID")
 
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
 
-app = Flask(__name__)
+DATA_FILE = "group_data.json"
 
-DATA_FILE = "lurk_data.json"
-
-# تحميل بيانات الـ Lurk أو تهيئتها
+# تحميل البيانات أو تهيئتها
 if os.path.exists(DATA_FILE):
     with open(DATA_FILE, "r", encoding="utf-8") as f:
-        lurk_data = json.load(f)
+        group_data = json.load(f)
 else:
-    lurk_data = {}
+    group_data = {}
 
 def save_data():
     with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(lurk_data, f, ensure_ascii=False, indent=2)
+        json.dump(group_data, f, ensure_ascii=False, indent=2)
+
+def init_group(group_id):
+    if group_id not in group_data:
+        group_data[group_id] = {
+            "admins": [ADMIN_USER_ID],    # قائمة الأدمنز، يبدأ بالمسؤول الرئيسي
+            "lurking": False,             # هل التتبع شغال؟
+            "lurkers": [],                # من تفاعل من الأعضاء
+            "members": {}                 # معلومات الأعضاء
+        }
+        save_data()
+
+def is_admin(group_id, user_id):
+    init_group(group_id)
+    return user_id in group_data[group_id]["admins"]
+
+def add_admin(group_id, user_id):
+    init_group(group_id)
+    if user_id not in group_data[group_id]["admins"]:
+        group_data[group_id]["admins"].append(user_id)
+        save_data()
+
+def remove_admin(group_id, user_id):
+    init_group(group_id)
+    if user_id in group_data[group_id]["admins"]:
+        group_data[group_id]["admins"].remove(user_id)
+        save_data()
+
+def add_lurker(group_id, user_id, name):
+    init_group(group_id)
+    lurkers = group_data[group_id]["lurkers"]
+    if not any(l['id'] == user_id for l in lurkers):
+        lurkers.append({"id": user_id, "name": name, "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+        save_data()
 
 @app.route("/callback", methods=["POST"])
 def callback():
     signature = request.headers.get("X-Line-Signature")
-    if signature is None:
-        app.logger.error("Missing X-Line-Signature")
+    if not signature:
         abort(400)
-
-    body = request.get_data()  # استلم البايتس كما هي
-
+    body = request.get_data(as_text=True)
     try:
-        handler.handle(body.decode("utf-8"), signature)
+        handler.handle(body, signature)
     except InvalidSignatureError:
-        app.logger.error("Invalid signature error")
         abort(400)
-
     return "OK"
 
 @handler.add(JoinEvent)
-def handle_join(event):
+def on_join(event):
     group_id = event.source.group_id
-    lurk_data.setdefault(group_id, {"tracking": False, "readers": []})
+    init_group(group_id)
+    line_bot_api.reply_message(event.reply_token,
+        TextSendMessage("مرحباً! البوت جاهز للتشغيل.\nاستخدم .help لمشاهدة الأوامر."))
+
+@handler.add(MemberJoinedEvent)
+def on_member_joined(event):
+    group_id = event.source.group_id
+    init_group(group_id)
+    for member in event.joined.members:
+        try:
+            profile = line_bot_api.get_group_member_profile(group_id, member.user_id)
+            group_data[group_id]["members"][member.user_id] = profile.display_name
+            if group_data[group_id]["lurking"]:
+                add_lurker(group_id, member.user_id, profile.display_name)
+            line_bot_api.push_message(group_id, TextSendMessage(f"👋 أهلاً {profile.display_name} في المجموعة!"))
+        except:
+            pass
     save_data()
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text="👋 مرحبًا! أرسل `.lurk on` لتفعيل تتبع القراء، و `.lurk off` لإيقافه.")
-    )
+
+@handler.add(MemberLeftEvent)
+def on_member_left(event):
+    group_id = event.source.group_id
+    init_group(group_id)
+    for member in event.left.members:
+        if member.user_id in group_data[group_id]["members"]:
+            name = group_data[group_id]["members"].pop(member.user_id)
+            line_bot_api.push_message(group_id, TextSendMessage(f"👋 وداعاً {name}!"))
+        if member.user_id in group_data[group_id]["lurkers"]:
+            group_data[group_id]["lurkers"] = [l for l in group_data[group_id]["lurkers"] if l["id"] != member.user_id]
+    save_data()
 
 @handler.add(MessageEvent, message=TextMessage)
-def handle_message(event):
-    text = event.message.text.strip().lower()
-    source = event.source
+def on_message(event):
+    group_id = event.source.group_id
+    user_id = event.source.user_id
+    text = event.message.text.strip()
 
-    if not hasattr(source, "group_id"):
-        return  # تجاهل الرسائل غير من مجموعة
+    init_group(group_id)
 
-    group_id = source.group_id
+    # تسجيل تفاعل العضو إذا التتبع مفعّل
+    if group_data[group_id]["lurking"]:
+        try:
+            profile = line_bot_api.get_group_member_profile(group_id, user_id)
+            add_lurker(group_id, user_id, profile.display_name)
+        except:
+            add_lurker(group_id, user_id, "مستخدم مجهول")
 
-    if group_id not in lurk_data:
-        lurk_data[group_id] = {"tracking": False, "readers": []}
+    # أوامر
+    if text.startswith(".help"):
+        help_text = (
+            "أوامر البوت:\n"
+            ".lurk on  - تفعيل تتبع المتصلين\n"
+            ".lurk off - إيقاف تتبع المتصلين\n"
+            ".lurk list - عرض المتصلين\n"
+            ".gadmin @user - تعيين أدمن\n"
+            ".radmin @user - إزالة أدمن\n"
+            ".kick @user - طرد عضو (للأدمن فقط)\n"
+            ".all - منشن للجميع\n"
+            ".clear - مسح قائمة المتصلين\n"
+        )
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(help_text))
+        return
 
     if text == ".lurk on":
-        lurk_data[group_id]["tracking"] = True
-        lurk_data[group_id]["readers"] = []
-        save_data()
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ تم تفعيل نظام التتبع (Lurk)."))
+        if is_admin(group_id, user_id):
+            group_data[group_id]["lurking"] = True
+            group_data[group_id]["lurkers"] = []
+            save_data()
+            line_bot_api.reply_message(event.reply_token, TextSendMessage("✅ تم تفعيل تتبع المتصلين."))
+        else:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage("❌ فقط الأدمن يمكنه تفعيل التتبع."))
 
     elif text == ".lurk off":
-        lurk_data[group_id]["tracking"] = False
-        save_data()
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⛔ تم إيقاف نظام التتبع (Lurk)."))
+        if is_admin(group_id, user_id):
+            group_data[group_id]["lurking"] = False
+            save_data()
+            line_bot_api.reply_message(event.reply_token, TextSendMessage("⛔ تم إيقاف تتبع المتصلين."))
+        else:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage("❌ فقط الأدمن يمكنه إيقاف التتبع."))
 
     elif text == ".lurk list":
-        readers = lurk_data[group_id]["readers"]
-        if not readers:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="📭 لا يوجد قراء مسجلين حالياً."))
+        lurkers = group_data[group_id]["lurkers"]
+        if lurkers:
+            list_text = "👀 المتصلون حالياً:\n" + "\n".join([f"- {l['name']}" for l in lurkers])
         else:
-            list_text = "\n".join(f"- {r['name']}" for r in readers)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"👀 قائمة القراء:\n{list_text}"))
+            list_text = "📭 لا يوجد متصلون مسجلون."
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(list_text))
 
-    elif text == ".lurk clear":
-        lurk_data[group_id]["readers"] = []
-        save_data()
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="🗑 تم مسح قائمة القراء."))
+    elif text == ".clear":
+        if is_admin(group_id, user_id):
+            group_data[group_id]["lurkers"] = []
+            save_data()
+            line_bot_api.reply_message(event.reply_token, TextSendMessage("🗑 تم مسح قائمة المتصلين."))
+        else:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage("❌ فقط الأدمن يمكنه مسح القائمة."))
 
-    elif text == ".lurk status":
-        status = "مفعل ✅" if lurk_data[group_id]["tracking"] else "معطل ⛔"
-        count = len(lurk_data[group_id]["readers"])
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(
-            text=f"📊 حالة نظام التتبع: {status}\n👀 عدد القراء المسجلين: {count}"
-        ))
+    elif text.startswith(".gadmin"):
+        if is_admin(group_id, user_id):
+            if "@" in text:
+                target_name = text.split("@")[1].strip()
+                try:
+                    # ابحث عن اليوزر من قائمة الأعضاء
+                    target_id = None
+                    for uid, name in group_data[group_id]["members"].items():
+                        if target_name in name:
+                            target_id = uid
+                            break
+                    if target_id:
+                        add_admin(group_id, target_id)
+                        line_bot_api.reply_message(event.reply_token, TextSendMessage(f"✅ تم تعيين {target_name} كأدمن."))
+                    else:
+                        line_bot_api.reply_message(event.reply_token, TextSendMessage("❌ المستخدم غير موجود في المجموعة."))
+                except Exception as e:
+                    line_bot_api.reply_message(event.reply_token, TextSendMessage(f"❌ خطأ: {str(e)}"))
+            else:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage("❌ الرجاء استخدام @username بعد الأمر."))
+        else:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage("❌ فقط الأدمن يمكنه تعيين أدمن جديد."))
+
+    elif text.startswith(".radmin"):
+        if is_admin(group_id, user_id):
+            if "@" in text:
+                target_name = text.split("@")[1].strip()
+                try:
+                    target_id = None
+                    for uid, name in group_data[group_id]["members"].items():
+                        if target_name in name:
+                            target_id = uid
+                            break
+                    if target_id:
+                        remove_admin(group_id, target_id)
+                        line_bot_api.reply_message(event.reply_token, TextSendMessage(f"✅ تم إزالة {target_name} من الأدمن."))
+                    else:
+                        line_bot_api.reply_message(event.reply_token, TextSendMessage("❌ المستخدم غير موجود في المجموعة."))
+                except Exception as e:
+                    line_bot_api.reply_message(event.reply_token, TextSendMessage(f"❌ خطأ: {str(e)}"))
+            else:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage("❌ الرجاء استخدام @username بعد الأمر."))
+        else:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage("❌ فقط الأدمن يمكنه إزالة الأدمن."))
+
+    elif text.startswith(".kick"):
+        if is_admin(group_id, user_id):
+            if "@" in text:
+                target_name = text.split("@")[1].strip()
+                try:
+                    target_id = None
+                    for uid, name in group_data[group_id]["members"].items():
+                        if target_name in name:
+                            target_id = uid
+                            break
+                    if target_id:
+                        line_bot_api.kickout_from_group(group_id, target_id)
+                        line_bot_api.reply_message(event.reply_token, TextSendMessage(f"✅ تم طرد {target_name} من المجموعة."))
+                    else:
+                        line_bot_api.reply_message(event.reply_token, TextSendMessage("❌ المستخدم غير موجود في المجموعة."))
+                except Exception as e:
+                    line_bot_api.reply_message(event.reply_token, TextSendMessage(f"❌ خطأ: {str(e)}"))
+            else:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage("❌ الرجاء استخدام @username بعد الأمر."))
+        else:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage("❌ فقط الأدمن يمكنه طرد الأعضاء."))
+
+    elif text == ".all":
+        # منشن الجميع (يمكن تنفيذها برسالة نصية تحتوي أسماء الجميع)
+        members = group_data[group_id]["members"].values()
+        if members:
+            mention_text = " ".join(members)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(f"📢 منشن للجميع:\n{mention_text}"))
+        else:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage("❌ لا يوجد أعضاء في المجموعة."))
 
     else:
-        if lurk_data[group_id]["tracking"]:
-            user_id = source.user_id
-            if not any(r["id"] == user_id for r in lurk_data[group_id]["readers"]):
-                try:
-                    profile = line_bot_api.get_group_member_profile(group_id, user_id)
-                    display_name = profile.display_name
-                except Exception:
-                    display_name = "مستخدم مجهول"
-                lurk_data[group_id]["readers"].append({
-                    "id": user_id,
-                    "name": display_name,
-                    "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                })
-                save_data()
+        # رد افتراضي أو تجاهل
+        pass
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
