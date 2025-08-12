@@ -9,7 +9,7 @@ from linebot.models import MessageEvent, TextMessage, TextSendMessage, JoinEvent
 # تحميل المتغيرات من البيئة
 CHANNEL_ACCESS_TOKEN = os.getenv("CHANNEL_ACCESS_TOKEN")
 CHANNEL_SECRET = os.getenv("CHANNEL_SECRET")
-ADMIN_USER_ID = os.getenv("USER_ID")  # استخدم USER_ID حسب ما أرسلت
+ADMIN_USER_ID = os.getenv("USER_ID")  # أو ADMIN_USER_ID حسب إعدادك
 
 if not CHANNEL_ACCESS_TOKEN or not CHANNEL_SECRET or not ADMIN_USER_ID:
     raise Exception("خطأ: يرجى ضبط CHANNEL_ACCESS_TOKEN و CHANNEL_SECRET و USER_ID في متغيرات البيئة.")
@@ -36,15 +36,15 @@ def save_data():
 def callback():
     signature = request.headers.get("X-Line-Signature")
     if signature is None:
-        app.logger.error("خطأ: رأس X-Line-Signature مفقود")
+        app.logger.error("Missing X-Line-Signature")
         abort(400)
 
-    body = request.get_data()  # استلام بايتس كما هو
+    body = request.get_data()  # استلم البايتس كما هي
 
     try:
         handler.handle(body.decode("utf-8"), signature)
     except InvalidSignatureError:
-        app.logger.error("خطأ: توقيع غير صالح")
+        app.logger.error("Invalid signature error")
         abort(400)
 
     return "OK"
@@ -69,11 +69,9 @@ def handle_message(event):
 
     group_id = source.group_id
 
-    # تأكد من وجود بيانات لهذه المجموعة
     if group_id not in lurk_data:
         lurk_data[group_id] = {"tracking": False, "readers": []}
 
-    # أوامر التحكم
     if text == ".lurk on":
         lurk_data[group_id]["tracking"] = True
         lurk_data[group_id]["readers"] = []
@@ -106,10 +104,8 @@ def handle_message(event):
         ))
 
     else:
-        # إذا كان التتبع مفعل، سجل المستخدم كقارئ عند كل رسالة نصية جديدة
         if lurk_data[group_id]["tracking"]:
             user_id = source.user_id
-            # تحقق من وجود المستخدم مسبقاً في القائمة
             if not any(r["id"] == user_id for r in lurk_data[group_id]["readers"]):
                 try:
                     profile = line_bot_api.get_group_member_profile(group_id, user_id)
