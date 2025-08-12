@@ -149,17 +149,17 @@ def on_message(event):
             group_data[group_id]["lurking"] = True
             group_data[group_id]["lurkers"] = []
             save_data()
-            line_bot_api.reply_message(event.reply_token, TextSendMessage("✅ تم تفعيل تتبع المتصلين."))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage("✅."))
         else:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage("❌ فقط الأدمن يمكنه تفعيل التتبع."))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage("❌."))
 
     elif text == ".lurk off":
         if is_admin(group_id, user_id):
             group_data[group_id]["lurking"] = False
             save_data()
-            line_bot_api.reply_message(event.reply_token, TextSendMessage("⛔ تم إيقاف تتبع المتصلين."))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage("⛔."))
         else:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage("❌ فقط الأدمن يمكنه إيقاف التتبع."))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage("❌."))
 
     elif text == ".lurk list":
         lurkers = group_data[group_id]["lurkers"]
@@ -173,9 +173,9 @@ def on_message(event):
         if is_admin(group_id, user_id):
             group_data[group_id]["lurkers"] = []
             save_data()
-            line_bot_api.reply_message(event.reply_token, TextSendMessage("🗑 تم مسح قائمة المتصلين."))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage("🗑."))
         else:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage("❌ فقط الأدمن يمكنه مسح القائمة."))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage("❌."))
 
     elif text.startswith(".gadmin"):
         if is_admin(group_id, user_id):
