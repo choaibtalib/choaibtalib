@@ -7,8 +7,8 @@ from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage, FollowEvent, JoinEvent, ReadEvent
 
 # ===== إعدادات البوت =====
-CHANNEL_ACCESS_TOKEN = os.getenv("CHANNEL_ACCESS_TOKEN", "ضع_التوكن_هنا")
-CHANNEL_SECRET = os.getenv("CHANNEL_SECRET", "ضع_السيكرت_هنا")
+CHANNEL_ACCESS_TOKEN = os.getenv("9Db/dSzqq+hazXQT2KK2tt8cmmqu6BJA67/4CxIT9oouKN8p+0I9YIvTl1gb4kna4CXxFfMuGNVDxI219vpUqkk/P3ZWvasHpBJsTcqbzjebP3Hjn/+rc0oqBFZwV3TZcwfIjsPgRH2u4AZMd1OpTwdB04t89/1O/w1cDnyilFU=", "ضع_التوكن_هنا")
+CHANNEL_SECRET = os.getenv("38f49345e7d8306354bcd54691e9a991", "ضع_السيكرت_هنا")
 
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
