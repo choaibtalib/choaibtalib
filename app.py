@@ -125,7 +125,7 @@ def on_member_joined(event):
         name = safe_get_profile(group_id, uid)
         group_data[group_id]["members"][uid] = name
 
-        # إرسال إشعار فوراً للخاص عند دخول العضو
+        # 📩 إشعار دائم للخاص عند دخول أي عضو (حتى لو لم يرسل رسالة)
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         msg = (
             f"🔔 عضو جديد دخل المجموعة!\n"
@@ -135,7 +135,7 @@ def on_member_joined(event):
         )
         dm_admin(msg)
 
-        # إذا كان التتبع مفعل، أضف العضو للقائمة
+        # 🔹 تسجيل العضو في قائمة المتصلين إذا التتبع مفعل فقط
         if group_data[group_id]["lurking"]:
             add_lurker(group_id, uid, name)
 
@@ -201,7 +201,7 @@ def on_message(event):
             save_data()
             line_bot_api.reply_message(event.reply_token, TextSendMessage("✅ تم تفعيل التتبع."))
             group_name = safe_get_group_name(group_id)
-            dm_admin(f"✅ تم تفعيل التتبع في: {group_name}\nسيصلك إشعار خاص عند دخول أي عضو.")
+            dm_admin(f"✅ تم تفعيل التتبع في: {group_name}\nسيصلك إشعار عند تفاعل أي عضو.")
         else:
             line_bot_api.reply_message(event.reply_token, TextSendMessage("❌ ليس لديك صلاحية."))
 
@@ -254,4 +254,4 @@ threading.Thread(target=reminder_loop, daemon=True).start()
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-             
+    
