@@ -9,7 +9,7 @@ from linebot.exceptions import InvalidSignatureError, LineBotApiError
 from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage,
     JoinEvent, MemberJoinedEvent, MemberLeftEvent,
-    PostbackEvent, TemplateSendMessage, ButtonsTemplate, MessageAction
+    TemplateSendMessage, ButtonsTemplate, MessageAction
 )
 
 app = Flask(__name__)
@@ -44,13 +44,9 @@ def init_group(group_id):
             "lurking": False,
             "lurkers": [],
             "members": {},
-            "sal_enabled": False,
-            "war": {
-                "active": False,
-                "participants": [],
-                "muslims": [],
-                "message_id": None
-            }
+            "war_active": False,
+            "war_participants": [],
+            "war_muslims": []
         }
         save_data()
 
@@ -65,6 +61,7 @@ def add_lurker(group_id, user_id, name):
         lurkers.append({"id": user_id, "name": name, "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
         save_data()
 
+# ==== مساعدات ====
 def safe_get_profile(group_id, user_id):
     try:
         p = line_bot_api.get_group_member_profile(group_id, user_id)
@@ -114,18 +111,19 @@ def on_member_joined(event):
     group_id = event.source.group_id
     init_group(group_id)
     group_name = safe_get_group_name(group_id)
+
     for member in event.joined.members:
         uid = member.user_id
         name = safe_get_profile(group_id, uid)
         group_data[group_id]["members"][uid] = name
 
-        # الترحيب بالعضو
+        # رسالة ترحيب بالعضو الجديد
         try:
-            line_bot_api.push_message(group_id, TextSendMessage(f"👋 مرحباً بك يا {name}!"))
+            line_bot_api.push_message(group_id, TextSendMessage(f"👋 مرحباً {name} في المجموعة!"))
         except LineBotApiError:
             pass
 
-        # تسجيل التتبع لو مفعل
+        # سجل التتبع لو مفعّل
         if group_data[group_id]["lurking"]:
             add_lurker(group_id, uid, name)
 
@@ -143,46 +141,9 @@ def on_member_left(event):
         except LineBotApiError:
             pass
         group_data[group_id]["lurkers"] = [l for l in group_data[group_id]["lurkers"] if l["id"] != uid]
-        # إزالة من الاستفتاء
-        war = group_data[group_id]["war"]
-        if uid in war["participants"]:
-            war["participants"].remove(uid)
-        if uid in war["muslims"]:
-            war["muslims"].remove(uid)
     save_data()
 
-# ==== رسائل واستفتاءات ====
-def create_war_card(group_id):
-    war = group_data[group_id]["war"]
-    participants = war["participants"]
-    muslims = war["muslims"]
-    # حساب المتخاذلين
-    members_in_group = list(group_data[group_id]["members"].values())
-    all_uids = list(group_data[group_id]["members"].keys())
-    participants_names = [safe_get_profile(group_id, uid) for uid in participants]
-    muslim_names = [safe_get_profile(group_id, uid) for uid in muslims]
-    non_participants_names = [safe_get_profile(group_id, uid) for uid in all_uids if uid not in participants]
-    participants_text = "\n".join([f"{i+1}. {n}" for i, n in enumerate(participants_names)]) or "لا أحد"
-    muslim_text = "\n".join([f"{i+1}. {n}" for i, n in enumerate(muslim_names)]) or "لا أحد"
-    non_participants_text = "\n".join([f"{i+1}. {n}" for i, n in enumerate(non_participants_names)]) or "لا أحد"
-
-    text = (
-        f"⚔️ استفتاء الحرب (مباشر)\n\n"
-        f"🗡️ المشاركون ({len(participants)}):\n{participants_text}\n\n"
-        f"🏰 المسلمون ({len(muslims)}):\n{muslim_text}\n\n"
-        f"🐍 المتخاذلون الذين لم يكتبوا أسماءهم ({len(non_participants_names)}):\n{non_participants_text}"
-    )
-
-    buttons_template = ButtonsTemplate(
-        title="استفتاء الحرب",
-        text="اضغط على زر اختيارك:",
-        actions=[
-            MessageAction(label="🗡️ أشارك", text=".war join"),
-            MessageAction(label="🏰 أسلم قلعتي", text=".war muslim")
-        ]
-    )
-    return TemplateSendMessage(alt_text="استفتاء الحرب", template=buttons_template), text
-
+# ==== الرسائل ====
 @handler.add(MessageEvent, message=TextMessage)
 def on_message(event):
     group_id = event.source.group_id
@@ -190,86 +151,146 @@ def on_message(event):
     text = (event.message.text or "").strip()
     init_group(group_id)
 
-    # التتبع
+    # سجل التفاعل لو التتبع مفعّل
     if group_data[group_id]["lurking"]:
         name = safe_get_profile(group_id, user_id)
         add_lurker(group_id, user_id, name)
 
     # أوامر البوت
+    if not is_admin(group_id, user_id):
+        return  # فقط الأدمن يتفاعل مع الأوامر
+
+    # ===== أوامر البوت =====
     if text.startswith(".help"):
         help_text = (
             "أوامر البوت:\n"
-            ".lurk on/off/list  - التتبع\n"
-            ".sal              - تذكير الصلاة على النبي\n"
-            ".war              - بدء استفتاء الحرب\n"
-            ".war s            - إيقاف الاستفتاء\n"
-            ".war r            - عرض النتائج\n"
+            ".lurk on  - تفعيل التتبع\n"
+            ".lurk off - إيقاف التتبع\n"
+            ".lurk list - عرض المتصلين\n"
+            ".sal - تفعيل تذكير الصلاة على النبي كل ساعة\n"
+            ".war - بدء استفتاء الحرب\n"
+            ".war r - عرض النتائج\n"
+            ".war s - إيقاف الاستفتاء\n"
         )
         line_bot_api.reply_message(event.reply_token, TextSendMessage(help_text))
-        return
 
-    # تذكير الصلاة على النبي
-    if text == ".sal" and is_admin(group_id, user_id):
+    elif text == ".lurk on":
+        group_data[group_id]["lurking"] = True
+        group_data[group_id]["lurkers"] = []
+        save_data()
+        line_bot_api.reply_message(event.reply_token, TextSendMessage("✅ تم تفعيل التتبع."))
+
+    elif text == ".lurk off":
+        group_data[group_id]["lurking"] = False
+        save_data()
+        line_bot_api.reply_message(event.reply_token, TextSendMessage("⛔ تم إيقاف التتبع."))
+
+    elif text == ".lurk list":
+        lurkers = group_data[group_id]["lurkers"]
+        if lurkers:
+            list_text = "👀 المتصلون:\n" + "\n".join([f"- {l['name']} ({l['time']})" for l in lurkers])
+        else:
+            list_text = "📭 لا يوجد متصلون مسجلون."
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(list_text))
+
+    # ===== تذكير الصلاة على النبي =====
+    elif text == ".sal":
+        group_data[group_id]["sal_active"] = True
+        save_data()
+        line_bot_api.reply_message(event.reply_token, TextSendMessage("🕌 تذكير الصلاة على النبي مفعل كل ساعة لهذه المجموعة."))
+
+    # ===== استفتاء الحرب =====
+    elif text == ".war":
+        group_data[group_id]["war_active"] = True
+        group_data[group_id]["war_participants"] = []
+        group_data[group_id]["war_muslims"] = []
+        save_data()
+        send_war_card(group_id)
+
+    elif text == ".war s":
+        group_data[group_id]["war_active"] = False
+        save_data()
+        line_bot_api.reply_message(event.reply_token, TextSendMessage("⛔ تم إيقاف الاستفتاء."))
+
+    elif text == ".war r":
+        send_war_results(group_id, event.reply_token)
+
+# ==== دوال الاستفتاء ====
+def send_war_card(group_id):
+    if not group_data[group_id]["war_active"]:
+        return
+    buttons = TemplateSendMessage(
+        alt_text="⚔️ استفتاء الحرب",
+        template=ButtonsTemplate(
+            title="⚔️ استفتاء الحرب",
+            text="اضغط على الزر لتسجيل اختيارك:",
+            actions=[
+                MessageAction(label="⚔️ مشارك بالحرب", text="war join"),
+                MessageAction(label="🏰 يتم تسليم قلعتي", text="war muslmun")
+            ]
+        )
+    )
+    try:
+        line_bot_api.push_message(group_id, buttons)
+    except LineBotApiError:
+        pass
+
+def send_war_results(group_id, reply_token=None):
+    members = group_data[group_id]["members"]
+    participants = group_data[group_id]["war_participants"]
+    muslims = group_data[group_id]["war_muslims"]
+    # المتخاذلون
+    traitors = [name for uid, name in members.items() if name not in participants and name not in muslims]
+    text = f"⚔️ استفتاء الحرب (مباشر)\n\n"
+    text += f"🗡️ المشاركون ({len(participants)}):\n" + "\n".join([f"{i+1}. {n}" for i, n in enumerate(participants)]) + "\n\n"
+    text += f"🏰 المسلمون ({len(muslims)}):\n" + "\n".join([f"{i+1}. {n}" for i, n in enumerate(muslims)]) + "\n\n"
+    text += f"🐍 المتخاذلون الذين لم يكتبوا أسماءهم ({len(traitors)}):\n" + "\n".join([f"{i+1}. {n}" for i, n in enumerate(traitors)]) if traitors else "يرجى المشاركة بالنموذج"
+    if reply_token:
+        line_bot_api.reply_message(reply_token, TextSendMessage(text))
+    else:
         try:
-            line_bot_api.push_message(group_id, TextSendMessage("🌸 صلوا على رسول الله ﷺ 🌸"))
-        except:
+            line_bot_api.push_message(group_id, TextSendMessage(text))
+        except LineBotApiError:
             pass
+
+# ==== الرد على اختيار الاستفتاء ====
+@handler.add(MessageEvent)
+def handle_war_choice(event):
+    group_id = event.source.group_id
+    user_id = event.source.user_id
+    if not is_admin(group_id, user_id) and not group_data[group_id]["war_active"]:
         return
+    text = (event.message.text or "").strip()
+    name = safe_get_profile(group_id, user_id)
 
-    # ====== استفتاء الحرب ======
-    war = group_data[group_id]["war"]
-
-    if text == ".war" and is_admin(group_id, user_id):
-        war["active"] = True
-        war["participants"] = []
-        war["muslims"] = []
-        msg_card, msg_text = create_war_card(group_id)
-        m = line_bot_api.reply_message(event.reply_token, [TextSendMessage(text=msg_text), msg_card])
-        if hasattr(m, "message_id"):
-            war["message_id"] = m.message_id
+    if text == "war join":
+        if name not in group_data[group_id]["war_participants"]:
+            group_data[group_id]["war_participants"].append(name)
+        # إزالة من المسلمين لو موجود
+        if name in group_data[group_id]["war_muslims"]:
+            group_data[group_id]["war_muslims"].remove(name)
         save_data()
-        return
+        send_war_results(group_id)
+        send_war_card(group_id)
 
-    elif text == ".war s" and is_admin(group_id, user_id):
-        war["active"] = False
-        war["participants"] = []
-        war["muslims"] = []
+    elif text == "war muslmun":
+        if name not in group_data[group_id]["war_muslims"]:
+            group_data[group_id]["war_muslims"].append(name)
+        # إزالة من المشاركين لو موجود
+        if name in group_data[group_id]["war_participants"]:
+            group_data[group_id]["war_participants"].remove(name)
         save_data()
-        line_bot_api.reply_message(event.reply_token, TextSendMessage("⛔ تم إيقاف الاستفتاء وإعادة التهيئة."))
-        return
-
-    elif text == ".war r" and is_admin(group_id, user_id):
-        msg_card, msg_text = create_war_card(group_id)
-        line_bot_api.reply_message(event.reply_token, [TextSendMessage(text=msg_text), msg_card])
-        return
-
-    # مشاركة الأعضاء
-    if war["active"]:
-        if text == ".war join":
-            if user_id not in war["participants"]:
-                war["participants"].append(user_id)
-            if user_id in war["muslims"]:
-                war["muslims"].remove(user_id)
-            save_data()
-        elif text == ".war muslim":
-            if user_id not in war["muslims"]:
-                war["muslims"].append(user_id)
-            if user_id not in war["participants"]:
-                war["participants"].append(user_id)
-            save_data()
-        # إعادة إرسال البطاقة مع النتائج
-        msg_card, msg_text = create_war_card(group_id)
-        line_bot_api.push_message(group_id, [TextSendMessage(text=msg_text), msg_card])
-        return
+        send_war_results(group_id)
+        send_war_card(group_id)
 
 # ==== تذكير الصلاة على النبي كل ساعة ====
 def reminder_loop():
     while True:
         time.sleep(3600)  # كل ساعة
-        for group_id, data in group_data.items():
-            if data.get("sal_enabled", True):
+        for gid, data in group_data.items():
+            if data.get("sal_active"):
                 try:
-                    line_bot_api.push_message(group_id, TextSendMessage("🌸 صلوا على رسول الله ﷺ 🌸"))
+                    line_bot_api.push_message(gid, TextSendMessage("🌸 صلوا على رسول الله ﷺ 🌸"))
                 except:
                     pass
 
@@ -279,4 +300,4 @@ threading.Thread(target=reminder_loop, daemon=True).start()
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-            
+    
