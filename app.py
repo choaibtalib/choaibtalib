@@ -139,16 +139,28 @@ def format_war_results(group_id):
     # المتخاذلون (أعضاء ما شاركوا)
     traitors = [name for uid, name in members.items() if uid not in votes]
 
-    txt = "⚔️ استفتاء الحرب (مباشر)\n\n"
-    txt += "🗡️ المشاركون ({}):\n".format(len(joiners))
-    for i, n in enumerate(joiners, 1):
-        txt += f"{i}. {n}\n"
-    txt += "\n🏰 المسلمون ({}):\n".format(len(muslims))
-    for i, n in enumerate(muslims, 1):
-        txt += f"{i}. {n}\n"
-    txt += "\n🐍 المتخاذلون الذين لم يكتبوا أسماءهم ({}):\n".format(len(traitors))
-    for i, n in enumerate(traitors, 1):
-        txt += f"{i}. {n}\n"
+    txt = "📊 نتائج استفتاء الحرب (مباشر) 📊\n\n"
+
+    if joiners:
+        txt += "⚔️ **المشاركون ({}):**\n".format(len(joiners))
+        for i, n in enumerate(joiners, 1):
+            txt += f"  {i}. {n}\n"
+    else:
+        txt += "⚔️ **لا يوجد مشاركون حتى الآن.**\n"
+
+    if muslims:
+        txt += "\n🏰 **المسلمون ({}):**\n".format(len(muslims))
+        for i, n in enumerate(muslims, 1):
+            txt += f"  {i}. {n}\n"
+    else:
+        txt += "\n🏰 **لا يوجد مسلمون حتى الآن.**\n"
+
+    if traitors:
+        txt += "\n🐍 **المتخاذلون الذين لم يكتبوا أسماءهم ({}):**\n".format(len(traitors))
+        for i, n in enumerate(traitors, 1):
+            txt += f"  {i}. {n}\n"
+    else:
+        txt += "\n🐍 **لا يوجد متخاذلون حتى الآن.**\n"
 
     return txt.strip()
 
@@ -229,4 +241,5 @@ def on_message(event):
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-    
+
+
