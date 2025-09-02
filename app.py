@@ -9,7 +9,7 @@ from linebot.exceptions import InvalidSignatureError, LineBotApiError
 from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage,
     JoinEvent, MemberJoinedEvent, MemberLeftEvent,
-    PostbackEvent, TemplateSendMessage, ButtonsTemplate, PostbackAction
+    TemplateSendMessage, ButtonsTemplate, PostbackAction
 )
 
 app = Flask(__name__)
@@ -17,10 +17,10 @@ app = Flask(__name__)
 # ==== المتغيرات ====
 CHANNEL_ACCESS_TOKEN = os.getenv("CHANNEL_ACCESS_TOKEN")
 CHANNEL_SECRET = os.getenv("CHANNEL_SECRET")
-ADMIN_USER_ID = os.getenv("USER_ID")
+ADMIN_USER_ID = os.getenv("USER_ID")  # أدمن رئيسي
 
 if not CHANNEL_ACCESS_TOKEN or not CHANNEL_SECRET or not ADMIN_USER_ID:
-    raise Exception("❌ يرجى ضبط متغيرات البيئة: CHANNEL_ACCESS_TOKEN و CHANNEL_SECRET و USER_ID")
+    raise Exception("يرجى ضبط متغيرات البيئة CHANNEL_ACCESS_TOKEN و CHANNEL_SECRET و USER_ID")
 
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
@@ -45,7 +45,8 @@ def init_group(group_id):
             "lurkers": [],
             "members": {},
             "war_active": False,
-            "war_votes": {},
+            "war_participants": [],
+            "war_muslims": []
         }
         save_data()
 
@@ -53,29 +54,33 @@ def is_admin(group_id, user_id):
     init_group(group_id)
     return user_id in group_data[group_id]["admins"]
 
+def add_lurker(group_id, user_id, name):
+    init_group(group_id)
+    lurkers = group_data[group_id]["lurkers"]
+    if not any(l['id'] == user_id for l in lurkers):
+        lurkers.append({"id": user_id, "name": name, "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+        save_data()
+
 def safe_get_profile(group_id, user_id):
     try:
         p = line_bot_api.get_group_member_profile(group_id, user_id)
         return p.display_name
-    except:
+    except LineBotApiError:
         return "مستخدم"
 
-# ==== التذكير بالصلاة على النبي ﷺ ====
-sal_groups = set()
+def safe_get_group_name(group_id):
+    try:
+        summary = line_bot_api.get_group_summary(group_id)
+        return summary.group_name
+    except LineBotApiError:
+        return f"Group-{group_id[-6:]}"
 
-def sal_loop():
-    while True:
-        time.sleep(3600)  # كل ساعة
-        for gid in list(sal_groups):
-            try:
-                line_bot_api.push_message(
-                    gid,
-                    TextSendMessage("🌹✨ صلّوا على الحبيب المصطفى ﷺ 🌹✨")
-                )
-            except:
-                pass
-
-threading.Thread(target=sal_loop, daemon=True).start()
+def dm_admin(text):
+    try:
+        line_bot_api.push_message(ADMIN_USER_ID, TextSendMessage(text))
+        return True
+    except LineBotApiError:
+        return False
 
 # ==== Webhook ====
 @app.route("/callback", methods=["POST"])
@@ -90,71 +95,6 @@ def callback():
         abort(400)
     return "OK"
 
-# ==== عرض نتائج الاستفتاء ====
-def format_war_results(group_id):
-    votes = group_data[group_id]["war_votes"]
-    members = group_data[group_id]["members"]
-
-    joiners = [safe_get_profile(group_id, uid) for uid, v in votes.items() if v == "join"]
-    muslims = [safe_get_profile(group_id, uid) for uid, v in votes.items() if v == "muslimun"]
-
-    # المتخاذلون (من لم يصوتوا)
-    traitors = [name for uid, name in members.items() if uid not in votes]
-
-    txt = "📊 نتائج استفتاء الحرب (مباشر) 📊\n\n"
-
-    if joiners:
-        txt += "⚔️ **المشاركون ({}):**\n".format(len(joiners))
-        for i, n in enumerate(joiners, 1):
-            txt += f"  {i}. {n}\n"
-    else:
-        txt += "⚔️ **لا يوجد مشاركون حتى الآن.**\n"
-
-    if muslims:
-        txt += "\n🏰 **المسلمون ({}):**\n".format(len(muslims))
-        for i, n in enumerate(muslims, 1):
-            txt += f"  {i}. {n}\n"
-    else:
-        txt += "\n🏰 **لا يوجد مسلمون حتى الآن.**\n"
-
-    if traitors:
-        txt += "\n🐍 **المتخاذلون الذين لم يكتبوا أسماءهم ({}):**\n".format(len(traitors))
-        for i, n in enumerate(traitors, 1):
-            txt += f"  {i}. {n}\n"
-    else:
-        txt += "\n🐍 **لا يوجد متخاذلون حتى الآن.**\n"
-
-    return txt.strip()
-
-# ==== بطاقة الاستفتاء الديناميكية (مع عدد المشاركين) ====
-def war_card(group_id):
-    votes = group_data[group_id]["war_votes"]
-    members_count = len(group_data[group_id]["members"])
-    voted_count = len(votes)
-    title = f"⚔️ استفتاء الحرب [{voted_count}/{members_count}]"
-
-    return TemplateSendMessage(
-        alt_text="⚔️ استفتاء الحرب",
-        template=ButtonsTemplate(
-            title=title,
-            text="اختر أحد الخيارين:",
-            actions=[
-                PostbackAction(label="⚔️ مشارك بالحرب", data="war:join"),
-                PostbackAction(label="🏰 يتم تسليم قلعتي", data="war:muslimun"),
-            ]
-        )
-    )
-
-# ==== إرسال تحديث الاستفتاء (البطاقة + النتيجة) ====
-def send_war_update(group_id):
-    """إرسال بطاقة الاستفتاء والنتيجة فوراً"""
-    try:
-        line_bot_api.push_message(group_id, war_card(group_id))
-        result_text = format_war_results(group_id)
-        line_bot_api.push_message(group_id, TextSendMessage(result_text))
-    except Exception as e:
-        print(f"Error sending war update: {e}")
-
 # ==== Events ====
 @handler.add(JoinEvent)
 def on_join(event):
@@ -162,22 +102,30 @@ def on_join(event):
     init_group(group_id)
     line_bot_api.reply_message(
         event.reply_token,
-        TextSendMessage("🤖 مرحباً! البوت جاهز.\nاستخدم .help لمشاهدة الأوامر.")
+        TextSendMessage("مرحباً! البوت جاهز.\nاستخدم .help لمشاهدة الأوامر.")
     )
 
 @handler.add(MemberJoinedEvent)
 def on_member_joined(event):
     group_id = event.source.group_id
     init_group(group_id)
+    group_name = safe_get_group_name(group_id)
 
     for member in event.joined.members:
         uid = member.user_id
         name = safe_get_profile(group_id, uid)
         group_data[group_id]["members"][uid] = name
-        line_bot_api.push_message(
-            group_id,
-            TextSendMessage(f"🎉 أهلاً وسهلاً {name}! نورت المجموعة 🌹")
-        )
+
+        # رسالة ترحيب
+        try:
+            line_bot_api.push_message(group_id, TextSendMessage(f"👋 مرحباً {name}!"))
+        except LineBotApiError:
+            pass
+
+        # سجل التفاعل لو التتبع مفعل
+        if group_data[group_id]["lurking"]:
+            add_lurker(group_id, uid, name)
+
     save_data()
 
 @handler.add(MemberLeftEvent)
@@ -188,72 +136,73 @@ def on_member_left(event):
         uid = member.user_id
         name = group_data[group_id]["members"].pop(uid, "مستخدم")
         try:
-            line_bot_api.push_message(group_id, TextSendMessage(f"👋 وداعاً {name}!"))
-        except:
+            line_bot_api.push_message(group_id, TextSendMessage(f"👋 مع السلامة {name}!"))
+        except LineBotApiError:
             pass
+        group_data[group_id]["lurkers"] = [l for l in group_data[group_id]["lurkers"] if l["id"] != uid]
+        # إزالة من الاستفتاء
+        if uid in group_data[group_id]["war_participants"]:
+            group_data[group_id]["war_participants"].remove(uid)
+        if uid in group_data[group_id]["war_muslims"]:
+            group_data[group_id]["war_muslims"].remove(uid)
     save_data()
 
-# ==== Postback ====
-@handler.add(PostbackEvent)
-def handle_postback(event):
-    group_id = event.source.group_id
-    init_group(group_id)
-    user_id = event.source.user_id
-    data = event.postback.data
+# ==== وظائف الاستفتاء ====
+def send_war_card(group_id):
+    buttons_template = ButtonsTemplate(
+        title="⚔️ استفتاء الحرب",
+        text="اختر خيارك:",
+        actions=[
+            PostbackAction(label="مشارك بالحرب ⚔️", data="war_join"),
+            PostbackAction(label="أسلم قلعتي 🏰", data="war_muslim")
+        ]
+    )
+    template_message = TemplateSendMessage(
+        alt_text="استفتاء الحرب", template=buttons_template
+    )
+    try:
+        line_bot_api.push_message(group_id, template_message)
+    except LineBotApiError:
+        pass
 
-    if not group_data[group_id]["war_active"]:
-        return
+def send_war_results(group_id):
+    participants = [safe_get_profile(group_id, uid) for uid in group_data[group_id]["war_participants"]]
+    muslims = [safe_get_profile(group_id, uid) for uid in group_data[group_id]["war_muslims"]]
+    members_all = list(group_data[group_id]["members"].values())
+    non_participants = [name for name in members_all if name not in participants and name not in muslims]
 
-    if data == "war:join":
-        group_data[group_id]["war_votes"][user_id] = "join"
-    elif data == "war:muslimun":
-        group_data[group_id]["war_votes"][user_id] = "muslimun"
+    result_text = f"⚔️ استفتاء الحرب (مباشر)\n\n"
+    result_text += f"🗡️ المشاركون ({len(participants)}):\n"
+    for i, name in enumerate(participants, start=1):
+        result_text += f"{i}. {name}\n"
 
-    save_data()
+    result_text += f"\n🏰 المسلمون ({len(muslims)}):\n"
+    for i, name in enumerate(muslims, start=1):
+        result_text += f"{i}. {name}\n"
 
-    # تحديث: إرسال البطاقة والنتيجة من جديد
-    send_war_update(group_id)
+    result_text += f"\n🐍 المتخاذلون الذين لم يكتبوا أسماءهم ({len(non_participants)}):\n"
+    for i, name in enumerate(non_participants, start=1):
+        result_text += f"{i}. {name}\n"
 
-# ==== الرسائل ====
-@handler.add(MessageEvent, message=TextMessage)
-def on_message(event):
-    if event.source.type != "group":
-        return  # تجاهل الرسائل الفردية
+    try:
+        line_bot_api.push_message(group_id, TextSendMessage(result_text))
+    except LineBotApiError:
+        pass
 
-    group_id = event.source.group_id
-    init_group(group_id)
-    user_id = event.source.user_id
-    text = (event.message.text or "").strip()
+# ==== تذكير الصلاة على النبي كل ساعة ====
+def reminder_loop():
+    while True:
+        time.sleep(3600)  # كل ساعة
+        for group_id in group_data:
+            try:
+                line_bot_api.push_message(group_id, TextSendMessage("🌸 صلوا على رسول الله ﷺ 🌸"))
+            except:
+                continue
 
-    # أوامر التذكير بالصلاة
-    if text == ".sal" and user_id == ADMIN_USER_ID:
-        sal_groups.add(group_id)
-        line_bot_api.reply_message(event.reply_token, TextSendMessage("✅ سيتم التذكير بالصلاة على النبي ﷺ كل ساعة."))
-        return
-    elif text == ".unsal" and user_id == ADMIN_USER_ID:
-        sal_groups.discard(group_id)
-        line_bot_api.reply_message(event.reply_token, TextSendMessage("❌ تم إلغاء التذكير في هذه المجموعة."))
-        return
-
-    # أوامر الحرب
-    if text == ".war" and is_admin(group_id, user_id):
-        group_data[group_id]["war_active"] = True
-        group_data[group_id]["war_votes"] = {}
-        save_data()
-        send_war_update(group_id)
-        return
-
-    elif text == ".war s" and is_admin(group_id, user_id):
-        group_data[group_id]["war_active"] = False
-        save_data()
-        line_bot_api.reply_message(event.reply_token, TextSendMessage("⛔ تم إيقاف الاستفتاء."))
-        return
-
-    elif text == ".war r" and is_admin(group_id, user_id):
-        send_war_update(group_id)
-        return
+threading.Thread(target=reminder_loop, daemon=True).start()
 
 # ==== Runner ====
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+                       
