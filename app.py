@@ -90,6 +90,71 @@ def callback():
         abort(400)
     return "OK"
 
+# ==== عرض نتائج الاستفتاء ====
+def format_war_results(group_id):
+    votes = group_data[group_id]["war_votes"]
+    members = group_data[group_id]["members"]
+
+    joiners = [safe_get_profile(group_id, uid) for uid, v in votes.items() if v == "join"]
+    muslims = [safe_get_profile(group_id, uid) for uid, v in votes.items() if v == "muslimun"]
+
+    # المتخاذلون (من لم يصوتوا)
+    traitors = [name for uid, name in members.items() if uid not in votes]
+
+    txt = "📊 نتائج استفتاء الحرب (مباشر) 📊\n\n"
+
+    if joiners:
+        txt += "⚔️ **المشاركون ({}):**\n".format(len(joiners))
+        for i, n in enumerate(joiners, 1):
+            txt += f"  {i}. {n}\n"
+    else:
+        txt += "⚔️ **لا يوجد مشاركون حتى الآن.**\n"
+
+    if muslims:
+        txt += "\n🏰 **المسلمون ({}):**\n".format(len(muslims))
+        for i, n in enumerate(muslims, 1):
+            txt += f"  {i}. {n}\n"
+    else:
+        txt += "\n🏰 **لا يوجد مسلمون حتى الآن.**\n"
+
+    if traitors:
+        txt += "\n🐍 **المتخاذلون الذين لم يكتبوا أسماءهم ({}):**\n".format(len(traitors))
+        for i, n in enumerate(traitors, 1):
+            txt += f"  {i}. {n}\n"
+    else:
+        txt += "\n🐍 **لا يوجد متخاذلون حتى الآن.**\n"
+
+    return txt.strip()
+
+# ==== بطاقة الاستفتاء الديناميكية (مع عدد المشاركين) ====
+def war_card(group_id):
+    votes = group_data[group_id]["war_votes"]
+    members_count = len(group_data[group_id]["members"])
+    voted_count = len(votes)
+    title = f"⚔️ استفتاء الحرب [{voted_count}/{members_count}]"
+
+    return TemplateSendMessage(
+        alt_text="⚔️ استفتاء الحرب",
+        template=ButtonsTemplate(
+            title=title,
+            text="اختر أحد الخيارين:",
+            actions=[
+                PostbackAction(label="⚔️ مشارك بالحرب", data="war:join"),
+                PostbackAction(label="🏰 يتم تسليم قلعتي", data="war:muslimun"),
+            ]
+        )
+    )
+
+# ==== إرسال تحديث الاستفتاء (البطاقة + النتيجة) ====
+def send_war_update(group_id):
+    """إرسال بطاقة الاستفتاء والنتيجة فوراً"""
+    try:
+        line_bot_api.push_message(group_id, war_card(group_id))
+        result_text = format_war_results(group_id)
+        line_bot_api.push_message(group_id, TextSendMessage(result_text))
+    except Exception as e:
+        print(f"Error sending war update: {e}")
+
 # ==== Events ====
 @handler.add(JoinEvent)
 def on_join(event):
@@ -128,55 +193,6 @@ def on_member_left(event):
             pass
     save_data()
 
-# ==== عرض نتائج الاستفتاء ====
-def format_war_results(group_id):
-    votes = group_data[group_id]["war_votes"]
-    members = group_data[group_id]["members"]
-
-    joiners = [safe_get_profile(group_id, uid) for uid, v in votes.items() if v == "join"]
-    muslims = [safe_get_profile(group_id, uid) for uid, v in votes.items() if v == "muslimun"]
-
-    # المتخاذلون (أعضاء ما شاركوا)
-    traitors = [name for uid, name in members.items() if uid not in votes]
-
-    txt = "📊 نتائج استفتاء الحرب (مباشر) 📊\n\n"
-
-    if joiners:
-        txt += "⚔️ **المشاركون ({}):**\n".format(len(joiners))
-        for i, n in enumerate(joiners, 1):
-            txt += f"  {i}. {n}\n"
-    else:
-        txt += "⚔️ **لا يوجد مشاركون حتى الآن.**\n"
-
-    if muslims:
-        txt += "\n🏰 **المسلمون ({}):**\n".format(len(muslims))
-        for i, n in enumerate(muslims, 1):
-            txt += f"  {i}. {n}\n"
-    else:
-        txt += "\n🏰 **لا يوجد مسلمون حتى الآن.**\n"
-
-    if traitors:
-        txt += "\n🐍 **المتخاذلون الذين لم يكتبوا أسماءهم ({}):**\n".format(len(traitors))
-        for i, n in enumerate(traitors, 1):
-            txt += f"  {i}. {n}\n"
-    else:
-        txt += "\n🐍 **لا يوجد متخاذلون حتى الآن.**\n"
-
-    return txt.strip()
-
-def war_card():
-    return TemplateSendMessage(
-        alt_text="⚔️ استفتاء الحرب",
-        template=ButtonsTemplate(
-            title="⚔️ استفتاء الحرب",
-            text="اختر أحد الخيارين:",
-            actions=[
-                PostbackAction(label="⚔️ مشارك بالحرب", data="war:join"),
-                PostbackAction(label="🏰 يتم تسليم قلعتي", data="war:muslimun"),
-            ]
-        )
-    )
-
 # ==== Postback ====
 @handler.add(PostbackEvent)
 def handle_postback(event):
@@ -195,14 +211,15 @@ def handle_postback(event):
 
     save_data()
 
-    # تحديث النتائج + البطاقة
-    txt = format_war_results(group_id)
-    line_bot_api.push_message(group_id, TextSendMessage(txt))
-    line_bot_api.push_message(group_id, war_card())
+    # تحديث: إرسال البطاقة والنتيجة من جديد
+    send_war_update(group_id)
 
 # ==== الرسائل ====
 @handler.add(MessageEvent, message=TextMessage)
 def on_message(event):
+    if event.source.type != "group":
+        return  # تجاهل الرسائل الفردية
+
     group_id = event.source.group_id
     init_group(group_id)
     user_id = event.source.user_id
@@ -223,7 +240,7 @@ def on_message(event):
         group_data[group_id]["war_active"] = True
         group_data[group_id]["war_votes"] = {}
         save_data()
-        line_bot_api.reply_message(event.reply_token, war_card())
+        send_war_update(group_id)
         return
 
     elif text == ".war s" and is_admin(group_id, user_id):
@@ -233,13 +250,10 @@ def on_message(event):
         return
 
     elif text == ".war r" and is_admin(group_id, user_id):
-        txt = format_war_results(group_id)
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(txt))
+        send_war_update(group_id)
         return
 
 # ==== Runner ====
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
-
