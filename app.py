@@ -1,102 +1,71 @@
 from flask import Flask, request, abort
-from linebot import LineBotApi, WebhookHandler
-from linebot.models import MessageEvent, TextMessage, TextSendMessage, PostbackEvent, TemplateSendMessage, ButtonsTemplate, PostbackAction
-from linebot.exceptions import LineBotApiError
 import os
+from linebot import LineBotApi, WebhookHandler
+from linebot.exceptions import InvalidSignatureError
+from linebot.models import MessageEvent, TextMessage, TextSendMessage, PostbackEvent, PostbackAction, TemplateSendMessage, ButtonsTemplate
 
 app = Flask(__name__)
 
-# استخدم نفس التوكن والايدي والبيانات السابقة
-line_bot_api = LineBotApi(os.environ['LINE_CHANNEL_ACCESS_TOKEN'])
-handler = WebhookHandler(os.environ['LINE_CHANNEL_SECRET'])
-GROUP_ID = os.environ['GROUP_ID']  # الأيدي القديمة
+# استخدام متغيرات البيئة كما هي عندك
+CHANNEL_ACCESS_TOKEN = os.getenv("CHANNEL_ACCESS_TOKEN")
+CHANNEL_SECRET = os.getenv("CHANNEL_SECRET")
+ADMIN_USER_ID = os.getenv("USER_ID")  # الأدمن الرئيسي
 
-# حالة الاستفتاء
-war_poll_active = False
-participants = []
-castle_surrender = []
+if not CHANNEL_ACCESS_TOKEN or not CHANNEL_SECRET or not ADMIN_USER_ID:
+    raise Exception("يرجى ضبط متغيرات البيئة CHANNEL_ACCESS_TOKEN و CHANNEL_SECRET و USER_ID")
 
-# إرسال بطاقة الاستفتاء
-def send_war_poll():
-    global war_poll_active
-    if not war_poll_active:
-        return
+line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
+handler = WebhookHandler(CHANNEL_SECRET)
+
+# القوائم لكل خيار
+shared_list = []
+not_shared_list = []
+
+# دالة لإرسال الاستفتاء
+def send_poll():
     buttons = TemplateSendMessage(
-        alt_text="استفتاء الحرب",
+        alt_text='استفتاء المشاركة',
         template=ButtonsTemplate(
-            title="⚔️ استفتاء الحرب",
-            text="اختر خيارك:",
+            title='حرب المجد',
+            text='اختر خيارك:',
             actions=[
-                PostbackAction(label="مشارك بالحرب ⚔️", data="join"),
-                PostbackAction(label="أسلم قلعتي 🏰", data="surrender")
+                PostbackAction(label='شارك', data='share'),
+                PostbackAction(label='لا تسلم القلعة', data='not_share')
             ]
         )
     )
-    line_bot_api.push_message(GROUP_ID, buttons)
+    line_bot_api.push_message(ADMIN_USER_ID, buttons)  # إرسال للأدمن أو مجموعة محددة
 
-# تحديث القوائم
-def update_war_lists(user_id, choice):
-    global participants, castle_surrender
-    if choice == "join":
-        if user_id in castle_surrender:
-            castle_surrender.remove(user_id)
-        if user_id not in participants:
-            participants.append(user_id)
-    elif choice == "surrender":
-        if user_id in participants:
-            participants.remove(user_id)
-        if user_id not in castle_surrender:
-            castle_surrender.append(user_id)
-    send_war_results()
+# دالة لتحديث القائمة
+def update_list(user_name, choice):
+    global shared_list, not_shared_list
+    if choice == 'share':
+        if user_name in shared_list:
+            return "لقد اخترت هذا الخيار مسبقًا!"
+        if user_name in not_shared_list:
+            not_shared_list.remove(user_name)
+        shared_list.append(user_name)
+    elif choice == 'not_share':
+        if user_name in not_shared_list:
+            return "لقد اخترت هذا الخيار مسبقًا!"
+        if user_name in shared_list:
+            shared_list.remove(user_name)
+        not_shared_list.append(user_name)
+    return None
 
-# إرسال النتائج مباشرة
-def send_war_results():
-    text = "⚔️ استفتاء الحرب (مباشر)\n\n"
-    text += "🗡️ المشاركون ({}):\n".format(len(participants))
-    for i, user in enumerate(participants, 1):
-        text += f"{i}- {user}\n"
-    text += "\n🏰 المسلمون ({}):\n".format(len(castle_surrender))
-    for i, user in enumerate(castle_surrender, 1):
-        text += f"{i}- {user}\n"
-    # المتخاذلون
-    text += "\n🐍 المتخاذلون الذين لم يكتبوا اسماءهم:\n"
-    # هنا ضع جميع الأعضاء بالقروب الذين لم يشاركوا
-    all_members = []  # ضع جميع الأعضاء الفعليين
-    non_participants = [m for m in all_members if m not in participants and m not in castle_surrender]
-    for i, user in enumerate(non_participants, 1):
-        text += f"{i}- {user}\n"
-    line_bot_api.push_message(GROUP_ID, TextSendMessage(text=text))
-    send_war_poll()  # إعادة إرسال البطاقة
-
-# أوامر الرسائل
-@handler.add(MessageEvent, message=TextMessage)
-def on_message(event):
-    global war_poll_active, participants, castle_surrender
-    msg = event.message.text.lower()
-    user_id = event.source.user_id
-
-    if event.source.user_id != os.environ['ADMIN_ID']:  # للأدمن فقط
-        return
-
-    if msg == ".war":
-        war_poll_active = True
-        participants = []
-        castle_surrender = []
-        send_war_poll()
-    elif msg == ".war s":
-        war_poll_active = False
-        participants = []
-        castle_surrender = []
-        line_bot_api.push_message(GROUP_ID, TextSendMessage(text="⚔️ تم إيقاف الاستفتاء وإعادة التصفير"))
-    elif msg == ".war r":
-        send_war_results()
-
-# التعامل مع الضغط على الخيارات
-@handler.add(PostbackEvent)
-def on_postback(event):
-    user_id = event.source.user_id
-    choice = event.postback.data
-    update_war_lists(user_id, choice)
+# عرض القوائم الحالية
+def get_list_message():
+    msg = "🔹 المشاركون:\n"
+    if shared_list:
+        msg += "\n".join(shared_list)
+    else:
+        msg += "لا أحد بعد."
+    msg += "\n\n🔹 الذين لم يسلموا القلعة:\n"
+    if not_shared_list:
+        msg += "\n".join(not_shared_list)
+    else:
+        msg += "لا أحد بعد."
+    return msg
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -104,10 +73,28 @@ def callback():
     body = request.get_data(as_text=True)
     try:
         handler.handle(body, signature)
-    except LineBotApiError as e:
-        print(e)
+    except InvalidSignatureError:
+        abort(400)
     return 'OK'
 
+@handler.add(MessageEvent, message=TextMessage)
+def on_message(event):
+    text = event.message.text.lower()
+    if text == 'استفتاء':
+        send_poll()
+    elif text == 'القائمة':
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=get_list_message()))
+
+@handler.add(PostbackEvent)
+def on_postback(event):
+    user_name = event.source.user_id  # أو يمكن تعديل ليستخدم displayName
+    choice = event.postback.data
+    error = update_list(user_name, choice)
+    if error:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=error))
+    else:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=get_list_message()))
+
 if __name__ == "__main__":
-    app.run()
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
     
