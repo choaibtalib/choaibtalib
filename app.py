@@ -69,7 +69,7 @@ def send_war_poll(reply_token):
     )
     line_bot_api.reply_message(reply_token, buttons)
 
-def send_war_results(group_id, reply_token=None):
+def send_war_results(group_id, reply_token=None, include_laggards=False):
     war = group_data[group_id]["war"]
     members = list(group_data[group_id]["members"].keys())
     participants = [safe_get_profile(group_id, uid) for uid in war["participants"]]
@@ -80,22 +80,12 @@ def send_war_results(group_id, reply_token=None):
     msg += f"🗡️ المشاركون ({len(participants)}):\n" + ("\n".join([f"{i+1}. {p}" for i, p in enumerate(participants)]) or "لا يوجد") + "\n\n"
     msg += f"🏰 المسلمون ({len(castles)}):\n" + ("\n".join([f"{i+1}. {p}" for i, p in enumerate(castles)]) or "لا يوجد") + "\n\n"
 
-    if laggards:
-        names = [safe_get_profile(group_id, uid) for uid in laggards]
-        msg += f"🐍 المتخاذلون ({len(names)}):\n" + "\n".join([f"{i+1}. {n}" for i, n in enumerate(names)])
-        msg += "\n\n⚠️ يا أبطال! التخاذل يضعف صفوفنا 💔، سارعوا بتحديد موقفكم ولا تتركوا إخوانكم وحدهم!"
-
-        # إرسال رسالة خاصة لكل متخاذل
-        for uid in laggards:
-            try:
-                line_bot_api.push_message(
-                    uid,
-                    TextSendMessage("⚠️ أيها البطل! لم تحدد موقفك بعد.\n\n🗡️ اكتب اسمك هنا أو عد للقروب وحدد خيارك في الاستفتاء 🔥")
-                )
-            except:
-                pass
-    else:
-        msg += "✅ لا يوجد متخاذلون، الكل حدّد موقفه 👏🔥"
+    # فقط إذا الأدمن طلب عرض المتخاذلين
+    if include_laggards:
+        if laggards:
+            msg += "🐍 لي ما كتب اسمه وش محلك من الإعراب بالمملكة 👀"
+        else:
+            msg += "👑🔥 ما فيه متخاذلين بمملكتنا"
 
     if reply_token:
         line_bot_api.reply_message(reply_token, TextSendMessage(msg))
@@ -127,6 +117,9 @@ def on_message(event):
 
         elif text == ".war r":
             send_war_results(group_id, event.reply_token)
+
+        elif text == ".war rl":  # عرض النتائج مع المتخاذلين
+            send_war_results(group_id, event.reply_token, include_laggards=True)
 
         elif text == ".war s":
             group_data[group_id]["war"]["active"] = False
