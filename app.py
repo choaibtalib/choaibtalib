@@ -1,17 +1,14 @@
 import os
 import json
-from datetime import datetime
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
-from linebot.exceptions import InvalidSignatureError, LineBotApiError
+from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
-    MessageEvent, TextMessage, TemplateSendMessage, ButtonsTemplate, PostbackAction,
-    PostbackEvent, JoinEvent, MemberJoinedEvent, MemberLeftEvent, TextSendMessage
+    MessageEvent, TextMessage, TextSendMessage,
+    PostbackEvent, TemplateSendMessage, ButtonsTemplate, PostbackAction
 )
 
-app = Flask(__name__)
-
-# ==== التوكنات والايدي ====
+# --- متغيرات البيئة ---
 CHANNEL_ACCESS_TOKEN = os.getenv("CHANNEL_ACCESS_TOKEN")
 CHANNEL_SECRET = os.getenv("CHANNEL_SECRET")
 ADMIN_USER_ID = os.getenv("USER_ID")  # أدمن رئيسي
@@ -22,7 +19,7 @@ if not CHANNEL_ACCESS_TOKEN or not CHANNEL_SECRET or not ADMIN_USER_ID:
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
 
-# ==== التخزين ====
+# --- بيانات المجموعات ---
 DATA_FILE = "group_data.json"
 if os.path.exists(DATA_FILE):
     with open(DATA_FILE, "r", encoding="utf-8") as f:
@@ -48,17 +45,17 @@ def init_group(group_id):
         save_data()
 
 def is_admin(group_id, user_id):
-    init_group(group_id)
     return user_id in group_data[group_id]["admins"]
 
 def safe_get_profile(group_id, user_id):
     try:
-        p = line_bot_api.get_group_member_profile(group_id, user_id)
-        return p.display_name
-    except LineBotApiError:
-        return "مستخدم"
+        profile = line_bot_api.get_group_member_profile(group_id, user_id)
+        return profile.display_name
+    except:
+        return "مجهول"
 
-def send_war_poll(group_id):
+# ==== استفتاء الحرب ====
+def send_war_poll(reply_token):
     buttons = TemplateSendMessage(
         alt_text="⚔️ استفتاء الحرب",
         template=ButtonsTemplate(
@@ -70,48 +67,39 @@ def send_war_poll(group_id):
             ]
         )
     )
-    line_bot_api.push_message(group_id, buttons)
+    line_bot_api.reply_message(reply_token, buttons)
 
-def send_war_results(group_id):
+def send_war_results(group_id, reply_token=None):
     war = group_data[group_id]["war"]
     members = list(group_data[group_id]["members"].values())
     participants = [safe_get_profile(group_id, uid) for uid in war["participants"]]
     castles = [safe_get_profile(group_id, uid) for uid in war["castle_holders"]]
     laggards = [m for m in members if m not in participants and m not in castles]
 
-    msg = f"⚔️ استفتاء الحرب (مباشر)\n\n"
+    msg = f"⚔️ استفتاء الحرب\n\n"
     msg += f"🗡️ المشاركون ({len(participants)}):\n" + "\n".join([f"{i+1}. {p}" for i, p in enumerate(participants)]) + "\n\n"
     msg += f"🏰 المسلمون ({len(castles)}):\n" + "\n".join([f"{i+1}. {p}" for i, p in enumerate(castles)]) + "\n\n"
     msg += f"🐍 المتخاذلون ({len(laggards)}):\n" + "\n".join([f"{i+1}. {p}" for i, p in enumerate(laggards)])
-    line_bot_api.push_message(group_id, TextSendMessage(msg))
-    if war["active"]:
-        send_war_poll(group_id)
 
-# ==== Webhook ====
-@app.route("/callback", methods=["POST"])
-def callback():
-    signature = request.headers.get("X-Line-Signature")
-    if not signature:
-        abort(400)
-    body = request.get_data(as_text=True)
-    try:
-        handler.handle(body, signature)
-    except InvalidSignatureError:
-        abort(400)
-    return "OK"
+    if reply_token:
+        line_bot_api.reply_message(reply_token, TextSendMessage(msg))
+    else:
+        line_bot_api.push_message(group_id, TextSendMessage(msg))
 
-# ==== الرسائل ====
+# ==== التعامل مع الرسائل ====
 @handler.add(MessageEvent, message=TextMessage)
 def on_message(event):
+    if not hasattr(event.source, "group_id"):
+        return
+
     group_id = event.source.group_id
     user_id = event.source.user_id
     text = (event.message.text or "").strip()
     init_group(group_id)
 
-    # تسجيل العضو إذا غير موجود
-    if user_id not in group_data[group_id]["members"]:
-        group_data[group_id]["members"][user_id] = safe_get_profile(group_id, user_id)
-        save_data()
+    # حفظ اسم المستخدم
+    group_data[group_id]["members"][user_id] = safe_get_profile(group_id, user_id)
+    save_data()
 
     if is_admin(group_id, user_id):
         if text == ".war":
@@ -119,12 +107,10 @@ def on_message(event):
             group_data[group_id]["war"]["participants"] = []
             group_data[group_id]["war"]["castle_holders"] = []
             save_data()
-            send_war_poll(group_id)
-            return
+            send_war_poll(event.reply_token)
 
         elif text == ".war r":
-            send_war_results(group_id)
-            return
+            send_war_results(group_id, event.reply_token)
 
         elif text == ".war s":
             group_data[group_id]["war"]["active"] = False
@@ -132,9 +118,8 @@ def on_message(event):
             group_data[group_id]["war"]["castle_holders"] = []
             save_data()
             line_bot_api.reply_message(event.reply_token, TextSendMessage("⛔ تم إيقاف الاستفتاء وإفراغ القوائم."))
-            return
 
-# ==== الرد على Postback ====
+# ==== التعامل مع الاختيارات ====
 @handler.add(PostbackEvent)
 def on_postback(event):
     group_id = event.source.group_id
@@ -152,6 +137,7 @@ def on_postback(event):
             war["participants"].append(user_id)
         if user_id in war["castle_holders"]:
             war["castle_holders"].remove(user_id)
+
     elif data == "war_castle":
         if user_id not in war["castle_holders"]:
             war["castle_holders"].append(user_id)
@@ -159,11 +145,22 @@ def on_postback(event):
             war["participants"].remove(user_id)
 
     save_data()
-    send_war_results(group_id)
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(f"تم تسجيل اختيارك {name} ✅"))
+    line_bot_api.reply_message(event.reply_token, TextSendMessage(f"✅ تم تسجيل اختيارك {name}"))
 
-# ==== Runner ====
+# ==== تشغيل السيرفر ====
+app = Flask(__name__)
+
+@app.route("/callback", methods=["POST"])
+def callback():
+    signature = request.headers["X-Line-Signature"]
+    body = request.get_data(as_text=True)
+
+    try:
+        handler.handle(body, signature)
+    except InvalidSignatureError:
+        abort(400)
+
+    return "OK"
+
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
-    
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
