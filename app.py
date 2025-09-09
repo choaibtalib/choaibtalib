@@ -11,7 +11,7 @@ from linebot.models import (
 # --- متغيرات البيئة ---
 CHANNEL_ACCESS_TOKEN = os.getenv("CHANNEL_ACCESS_TOKEN")
 CHANNEL_SECRET = os.getenv("CHANNEL_SECRET")
-ADMIN_USER_ID = os.getenv("USER_ID")
+ADMIN_USER_ID = os.getenv("USER_ID")  # أدمن رئيسي
 
 if not CHANNEL_ACCESS_TOKEN or not CHANNEL_SECRET or not ADMIN_USER_ID:
     raise Exception("يرجى ضبط متغيرات البيئة CHANNEL_ACCESS_TOKEN و CHANNEL_SECRET و USER_ID")
@@ -19,7 +19,7 @@ if not CHANNEL_ACCESS_TOKEN or not CHANNEL_SECRET or not ADMIN_USER_ID:
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
 
-# --- تخزين البيانات ---
+# --- بيانات المجموعات ---
 DATA_FILE = "group_data.json"
 if os.path.exists(DATA_FILE):
     with open(DATA_FILE, "r", encoding="utf-8") as f:
@@ -39,8 +39,7 @@ def init_group(group_id):
             "war": {
                 "active": False,
                 "participants": [],
-                "castle_holders": [],
-                "laggards": []
+                "castle_holders": []
             }
         }
         save_data()
@@ -64,25 +63,44 @@ def send_war_poll(reply_token):
             text="اختر خيارك:",
             actions=[
                 PostbackAction(label="⚔️ مشاركة بالحرب", data="war_join"),
-                PostbackAction(label="🏰 أسلّم قلعتي", data="war_castle")
+                PostbackAction(label="🏰 أسلم قلعتي", data="war_castle")
             ]
         )
     )
     line_bot_api.reply_message(reply_token, buttons)
 
-def send_war_results(group_id):
+def send_war_results(group_id, reply_token=None):
     war = group_data[group_id]["war"]
-
+    members = list(group_data[group_id]["members"].keys())
     participants = [safe_get_profile(group_id, uid) for uid in war["participants"]]
     castles = [safe_get_profile(group_id, uid) for uid in war["castle_holders"]]
-    laggards = war["laggards"]
+    laggards = [uid for uid in members if uid not in war["participants"] and uid not in war["castle_holders"]]
 
     msg = f"⚔️ استفتاء الحرب\n\n"
-    msg += f"🗡️ المشاركون ({len(participants)}):\n" + ("\n".join([f"{i+1}. {p}" for i, p in enumerate(participants)]) or "لا أحد") + "\n\n"
-    msg += f"🏰 المسلمون ({len(castles)}):\n" + ("\n".join([f"{i+1}. {c}" for i, c in enumerate(castles)]) or "لا أحد") + "\n\n"
-    msg += f"🐍 المتخاذلون ({len(laggards)}):\n" + ("\n".join([f"{i+1}. {l}" for i, l in enumerate(laggards)]) or "✍️ إذا لم تشارك ولم تسلّم قلعتك، اكتب اسمك هنا ليُسجَّل.")
+    msg += f"🗡️ المشاركون ({len(participants)}):\n" + ("\n".join([f"{i+1}. {p}" for i, p in enumerate(participants)]) or "لا يوجد") + "\n\n"
+    msg += f"🏰 المسلمون ({len(castles)}):\n" + ("\n".join([f"{i+1}. {p}" for i, p in enumerate(castles)]) or "لا يوجد") + "\n\n"
 
-    line_bot_api.push_message(group_id, TextSendMessage(msg))
+    if laggards:
+        names = [safe_get_profile(group_id, uid) for uid in laggards]
+        msg += f"🐍 المتخاذلون ({len(names)}):\n" + "\n".join([f"{i+1}. {n}" for i, n in enumerate(names)])
+        msg += "\n\n⚠️ يا أبطال! التخاذل يضعف صفوفنا 💔، سارعوا بتحديد موقفكم ولا تتركوا إخوانكم وحدهم!"
+
+        # إرسال رسالة خاصة لكل متخاذل
+        for uid in laggards:
+            try:
+                line_bot_api.push_message(
+                    uid,
+                    TextSendMessage("⚠️ أيها البطل! لم تحدد موقفك بعد.\n\n🗡️ اكتب اسمك هنا أو عد للقروب وحدد خيارك في الاستفتاء 🔥")
+                )
+            except:
+                pass
+    else:
+        msg += "✅ لا يوجد متخاذلون، الكل حدّد موقفه 👏🔥"
+
+    if reply_token:
+        line_bot_api.reply_message(reply_token, TextSendMessage(msg))
+    else:
+        line_bot_api.push_message(group_id, TextSendMessage(msg))
 
 # ==== التعامل مع الرسائل ====
 @handler.add(MessageEvent, message=TextMessage)
@@ -101,26 +119,21 @@ def on_message(event):
 
     if is_admin(group_id, user_id):
         if text == ".war":
-            group_data[group_id]["war"] = {
-                "active": True,
-                "participants": [],
-                "castle_holders": [],
-                "laggards": []
-            }
+            group_data[group_id]["war"]["active"] = True
+            group_data[group_id]["war"]["participants"] = []
+            group_data[group_id]["war"]["castle_holders"] = []
             save_data()
             send_war_poll(event.reply_token)
 
+        elif text == ".war r":
+            send_war_results(group_id, event.reply_token)
+
         elif text == ".war s":
             group_data[group_id]["war"]["active"] = False
+            group_data[group_id]["war"]["participants"] = []
+            group_data[group_id]["war"]["castle_holders"] = []
             save_data()
-            line_bot_api.reply_message(event.reply_token, TextSendMessage("⛔ تم إيقاف الاستفتاء."))
-
-    # تسجيل المتخاذلين إذا كتبوا أسماءهم
-    elif group_data[group_id]["war"]["active"]:
-        if text not in group_data[group_id]["war"]["laggards"]:
-            group_data[group_id]["war"]["laggards"].append(text)
-            save_data()
-            send_war_results(group_id)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage("⛔ تم إيقاف الاستفتاء وإفراغ القوائم."))
 
 # ==== التعامل مع الاختيارات ====
 @handler.add(PostbackEvent)
@@ -140,19 +153,15 @@ def on_postback(event):
             war["participants"].append(user_id)
         if user_id in war["castle_holders"]:
             war["castle_holders"].remove(user_id)
-        if name in war["laggards"]:
-            war["laggards"].remove(name)
 
     elif data == "war_castle":
         if user_id not in war["castle_holders"]:
             war["castle_holders"].append(user_id)
         if user_id in war["participants"]:
             war["participants"].remove(user_id)
-        if name in war["laggards"]:
-            war["laggards"].remove(name)
 
     save_data()
-    send_war_results(group_id)
+    line_bot_api.reply_message(event.reply_token, TextSendMessage(f"✅ تم تسجيل اختيارك {name}"))
 
 # ==== تشغيل السيرفر ====
 app = Flask(__name__)
