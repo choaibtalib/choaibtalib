@@ -54,6 +54,34 @@ def safe_get_profile(group_id, user_id):
     except:
         return "مجهول"
 
+# ==== نظام التتبع الأقصى (Lurkers) ====
+if "lurkers" not in group_data.get("global", {}):
+    group_data.setdefault("global", {})["lurkers"] = {}
+
+def mark_lurker(group_id, user_id):
+    lurkers = group_data.setdefault("global", {}).setdefault("lurkers", {})
+    group_lurk = lurkers.setdefault(group_id, {"readers": [], "last_msg_id": None})
+    if user_id not in group_lurk["readers"]:
+        group_lurk["readers"].append(user_id)
+    save_data()
+
+def reset_lurkers(group_id):
+    lurkers = group_data.setdefault("global", {}).setdefault("lurkers", {})
+    lurkers[group_id] = {"readers": [], "last_msg_id": None}
+    save_data()
+
+def show_lurkers(group_id, reply_token):
+    lurkers = group_data.get("global", {}).get("lurkers", {})
+    readers = lurkers.get(group_id, {}).get("readers", [])
+    members = group_data[group_id]["members"].keys()
+    laggards = [uid for uid in members if uid not in readers]
+
+    if laggards:
+        msg = "👀 المتخاذلون:\n" + "\n".join([f"- {safe_get_profile(group_id,uid)}" for uid in laggards])
+    else:
+        msg = "🔥 لا يوجد متخاذلين، الكل متابع!"
+    line_bot_api.reply_message(reply_token, TextSendMessage(msg))
+
 # ==== استفتاء الحرب ====
 def send_war_poll(reply_token):
     buttons = TemplateSendMessage(
@@ -80,12 +108,11 @@ def send_war_results(group_id, reply_token=None, include_laggards=False):
     msg += f"🗡️ المشاركون ({len(participants)}):\n" + ("\n".join([f"{i+1}. {p}" for i, p in enumerate(participants)]) or "لا يوجد") + "\n\n"
     msg += f"🏰 المسلمون ({len(castles)}):\n" + ("\n".join([f"{i+1}. {p}" for i, p in enumerate(castles)]) or "لا يوجد") + "\n\n"
 
-    # فقط إذا الأدمن طلب عرض المتخاذلين
     if include_laggards:
         if laggards:
-            msg += "🐍 لي ما كتب اسمه وش محلك من الإعراب بالمملكة 👀"
+            msg += "🐍 المتخاذلون:\n" + "\n".join([f"- {safe_get_profile(group_id, uid)}" for uid in laggards])
         else:
-            msg += "👑🔥 ما فيه متخاذلين بمملكتنا"
+            msg += "👑🔥 لا يوجد متخاذلين."
 
     if reply_token:
         line_bot_api.reply_message(reply_token, TextSendMessage(msg))
@@ -102,25 +129,31 @@ def on_message(event):
     user_id = event.source.user_id
     text = (event.message.text or "").strip()
     init_group(group_id)
-
-    # حفظ اسم المستخدم
     group_data[group_id]["members"][user_id] = safe_get_profile(group_id, user_id)
+
+    # تسجيل القراءة لكل عضو
+    mark_lurker(group_id, user_id)
     save_data()
 
+    # أوامر الأدمن
     if is_admin(group_id, user_id):
-        if text == ".war":
+        if text.lower() == ".lurkers":
+            show_lurkers(group_id, event.reply_token)
+        elif text.lower() == ".lurkers reset":
+            reset_lurkers(group_id)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage("♻️ تم إعادة تعيين المتتبعين."))
+
+        # أوامر الحرب
+        elif text == ".war":
             group_data[group_id]["war"]["active"] = True
             group_data[group_id]["war"]["participants"] = []
             group_data[group_id]["war"]["castle_holders"] = []
             save_data()
             send_war_poll(event.reply_token)
-
         elif text == ".war r":
             send_war_results(group_id, event.reply_token)
-
-        elif text == ".war rl":  # عرض النتائج مع المتخاذلين
+        elif text == ".war rl":
             send_war_results(group_id, event.reply_token, include_laggards=True)
-
         elif text == ".war s":
             group_data[group_id]["war"]["active"] = False
             group_data[group_id]["war"]["participants"] = []
@@ -146,7 +179,6 @@ def on_postback(event):
             war["participants"].append(user_id)
         if user_id in war["castle_holders"]:
             war["castle_holders"].remove(user_id)
-
     elif data == "war_castle":
         if user_id not in war["castle_holders"]:
             war["castle_holders"].append(user_id)
