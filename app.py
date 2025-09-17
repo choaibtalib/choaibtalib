@@ -67,8 +67,9 @@ def start_prayer_reminder():
                     # إرسال التذكير لجميع المجموعات
                     for group_id in group_data.keys():
                         try:
-                            line_bot_api.push_message(group_id, TextSendMessage(text=prayer_message))
-                            logger.info(f"تم إرسال تذكير الصلاة على النبي للمجموعة {group_id}")
+                            if group_data[group_id]["settings"]["prayer_reminders"]:
+                                line_bot_api.push_message(group_id, TextSendMessage(text=prayer_message))
+                                logger.info(f"تم إرسال تذكير الصلاة على النبي للمجموعة {group_id}")
                         except Exception as e:
                             logger.error(f"خطأ في إرسال التذكير للمجموعة {group_id}: {e}")
                 
@@ -93,9 +94,7 @@ def init_group(group_id):
                 "participants": [],        # مشاركون ومستعدون
                 "castle_holders": [],      # مسلمو القلاع
                 "reserve_players": [],     # لاعبون احتياطيون
-                "call_active": False,
                 "call_start_time": None,
-                "call_message_id": None,
                 "last_update_message_id": None
             },
             "settings": {
@@ -134,7 +133,7 @@ def create_war_poll_message():
         )
     )
 
-def send_war_update(group_id, user_id=None):
+def send_war_update(group_id):
     """إرسال تحديث النتائج بعد كل اختيار"""
     war = group_data[group_id]["war"]
     
@@ -161,19 +160,6 @@ def send_war_update(group_id, user_id=None):
             QuickReplyButton(action=PostbackAction(label="📊 النتائج", data="war_show_results"))
         ])
     )
-    
-    # محاولة تحديث الرسالة السابقة إذا كانت موجودة
-    try:
-        if war["last_update_message_id"]:
-            line_bot_api.push_message(
-                group_id,
-                TextSendMessage(
-                    text="🔄 تم تحديث النتائج، انظر الرسالة الأخيرة",
-                    reply_token=war["last_update_message_id"]
-                )
-            )
-    except:
-        pass
     
     # إرسال الرسالة الجديدة وحفظ معرفها
     result = line_bot_api.push_message(group_id, message)
@@ -222,13 +208,15 @@ def process_war_response(group_id, user_id, response_type):
     response_text = ""
     if response_type == "participate":
         war["participants"].append(user_id)
-        response_text = f"✅ تم تسجيل {user_name} كمشارك في المعركة!"
+        response_text = f"✅ {user_name} تم تسجيلك كمشارك في المعركة!"
     elif response_type == "surrender":
         war["castle_holders"].append(user_id)
-        response_text = f"🏰 تم تسجيل {user_name} كمسلم للقلعة!"
+        response_text = f"🏰 {user_name} تم تسجيلك كمسلم للقلعة!"
     elif response_type == "reserve":
         war["reserve_players"].append(user_id)
-        response_text = f"🛡️ تم تسجيل {user_name} كلاعب احتياطي!"
+        response_text = f"🛡️ {user_name} تم تسجيلك كلاعب احتياطي!"
+    
+    save_data(group_data)
     
     # إرسال تأكيد للمستخدم
     try:
@@ -236,10 +224,8 @@ def process_war_response(group_id, user_id, response_type):
     except Exception as e:
         logger.error(f"لا يمكن إرسال رسالة للمستخدم {user_id}: {e}")
     
-    save_data(group_data)
-    
     # إرسال تحديث النتائج للمجموعة
-    send_war_update(group_id, user_id)
+    send_war_update(group_id)
     
     return True
 
@@ -298,6 +284,16 @@ def end_war_poll(group_id):
     save_data(group_data)
     return True
 
+def toggle_prayer_reminder(group_id):
+    """تبديل حالة التذكير بالصلاة على النبي"""
+    current_state = group_data[group_id]["settings"]["prayer_reminders"]
+    group_data[group_id]["settings"]["prayer_reminders"] = not current_state
+    save_data(group_data)
+    
+    new_state = group_data[group_id]["settings"]["prayer_reminders"]
+    status = "مفعل" if new_state else "معطل"
+    return f"✅ تم {status} التذكير بالصلاة على النبي."
+
 # === معالجة الأحداث ===
 @handler.add(MessageEvent, message=TextMessage)
 def on_message(event):
@@ -314,21 +310,16 @@ def on_message(event):
 
     # أوامر الأدمن
     if is_admin(group_id, user_id):
-        if text == ".استفتاء":
+        if text == ".w":
             start_war_poll(group_id, event.reply_token)
-        elif text == ".انهاء الاستفتاء":
+        elif text == ".war":
             end_war_poll(group_id)
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ تم إنهاء الاستفتاء وعرض النتائج النهائية."))
-        elif text == ".النتائج":
+        elif text == ".ws":
             show_war_results(group_id, event.reply_token, detailed=True)
-        elif text == ".تفعيل التذكير":
-            group_data[group_id]["settings"]["prayer_reminders"] = True
-            save_data(group_data)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ تم تفعيل التذكير بالصلاة على النبي."))
-        elif text == ".تعطيل التذكير":
-            group_data[group_id]["settings"]["prayer_reminders"] = False
-            save_data(group_data)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ تم تعطيل التذكير بالصلاة على النبي."))
+        elif text == ".s":
+            result = toggle_prayer_reminder(group_id)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=result))
 
 @handler.add(PostbackEvent)
 def on_postback(event):
