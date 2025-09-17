@@ -54,24 +54,32 @@ group_data = load_data()
 def start_prayer_reminder():
     """بدء نظام التذكير بالصلاة على النبي كل نصف ساعة"""
     def reminder_loop():
+        last_reminder_hour = -1
         while True:
             try:
                 now = datetime.now()
-                # التذكير كل 30 دقيقة
-                if now.minute % 30 == 0 and now.second == 0:
-                    prayer_message = "🕌 *تذكير:* صلوا على النبي محمد صلى الله عليه وسلم\n\n" \
-                                    "ﷺ اللهم صل على محمد وعلى آل محمد كما صليت على إبراهيم وعلى آل إبراهيم " \
-                                    "إنك حميد مجيد، اللهم بارك على محمد وعلى آل محمد كما باركت على إبراهيم " \
-                                    "وعلى آل إبراهيم إنك حميد مجيد ﷺ"
-                    
-                    # إرسال التذكير لجميع المجموعات
-                    for group_id in group_data.keys():
-                        try:
-                            if group_data[group_id]["settings"]["prayer_reminders"]:
-                                line_bot_api.push_message(group_id, TextSendMessage(text=prayer_message))
-                                logger.info(f"تم إرسال تذكير الصلاة على النبي للمجموعة {group_id}")
-                        except Exception as e:
-                            logger.error(f"خطأ في إرسال التذكير للمجموعة {group_id}: {e}")
+                current_minute = now.minute
+                current_hour = now.hour
+                
+                # التذكير كل 30 دقيقة (عند الدقيقة 00 و 30)
+                if current_minute in [0, 30] and now.second == 0:
+                    # منع التكرار في نفس الساعة والدقيقة
+                    if last_reminder_hour != current_hour or (current_minute == 30 and last_reminder_hour != current_hour):
+                        prayer_message = "🕌 *تذكير:* صلوا على النبي محمد صلى الله عليه وسلم\n\n" \
+                                        "ﷺ اللهم صل على محمد وعلى آل محمد كما صليت على إبراهيم وعلى آل إبراهيم " \
+                                        "إنك حميد مجيد، اللهم بارك على محمد وعلى آل محمد كما باركت على إبراهيم " \
+                                        "وعلى آل إبراهيم إنك حميد مجيد ﷺ"
+                        
+                        # إرسال التذكير لجميع المجموعات
+                        for group_id in list(group_data.keys()):
+                            try:
+                                if group_data[group_id]["settings"]["prayer_reminders"]:
+                                    line_bot_api.push_message(group_id, TextSendMessage(text=prayer_message))
+                                    logger.info(f"تم إرسال تذكير الصلاة على النبي للمجموعة {group_id}")
+                            except Exception as e:
+                                logger.error(f"خطأ في إرسال التذكير للمجموعة {group_id}: {e}")
+                        
+                        last_reminder_hour = current_hour
                 
                 time.sleep(1)  # التحقق كل ثانية
             except Exception as e:
@@ -100,7 +108,7 @@ def init_group(group_id):
             "settings": {
                 "auto_end_call_hours": 2,
                 "notify_non_responders": True,
-                "prayer_reminders": True
+                "prayer_reminders": True  # مفعل افتراضياً
             },
             "created_at": datetime.now().isoformat()
         }
@@ -295,7 +303,7 @@ def toggle_prayer_reminder(group_id):
     save_data(group_data)
     
     new_state = group_data[group_id]["settings"]["prayer_reminders"]
-    status = "مفعل" if new_state else "معطل"
+    status = "تفعيل" if new_state else "تعطيل"
     return f"✅ تم {status} التذكير بالصلاة على النبي."
 
 # === معالجة الأحداث ===
@@ -324,6 +332,11 @@ def on_message(event):
         elif text == ".s":
             result = toggle_prayer_reminder(group_id)
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=result))
+        elif text == ".حالة التذكير":
+            # أمر جديد للتحقق من حالة التذكير
+            current_state = group_data[group_id]["settings"]["prayer_reminders"]
+            status = "مفعل" if current_state else "معطل"
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"حالة التذكير: {status}"))
 
 @handler.add(PostbackEvent)
 def on_postback(event):
@@ -364,6 +377,24 @@ def callback():
 @app.route("/", methods=["GET"])
 def home():
     return "✅ البوت المتكامل يعمل بشكل صحيح"
+
+@app.route("/test_reminder", methods=["GET"])
+def test_reminder():
+    """مسار لاختبار التذكير يدوياً"""
+    prayer_message = "🕌 *تذكير اختباري:* صلوا على النبي محمد صلى الله عليه وسلم\n\n" \
+                    "ﷺ اللهم صل على محمد وعلى آل محمد كما صليت على إبراهيم وعلى آل إبراهيم " \
+                    "إنك حميد مجيد، اللهم بارك على محمد وعلى آل محمد كما باركت على إبراهيم " \
+                    "وعلى آل إبراهيم إنك حميد مجيد ﷺ"
+    
+    for group_id in list(group_data.keys()):
+        try:
+            if group_data[group_id]["settings"]["prayer_reminders"]:
+                line_bot_api.push_message(group_id, TextSendMessage(text=prayer_message))
+                logger.info(f"تم إرسال تذكير اختباري للمجموعة {group_id}")
+        except Exception as e:
+            logger.error(f"خطأ في إرسال التذكير الاختباري للمجموعة {group_id}: {e}")
+    
+    return "تم إرسال التذكير الاختباري"
 
 if __name__ == "__main__":
     # بدء نظام التذكير بالصلاة على النبي
