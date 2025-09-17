@@ -8,7 +8,8 @@ from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage,
     PostbackEvent, TemplateSendMessage, ButtonsTemplate, 
-    PostbackAction, ConfirmTemplate, MessageAction
+    PostbackAction, ConfirmTemplate, URIAction,
+    QuickReply, QuickReplyButton, CarouselTemplate, CarouselColumn
 )
 
 # --- إعدادات التسجيل ---
@@ -18,12 +19,10 @@ logger = logging.getLogger(__name__)
 # --- متغيرات البيئة ---
 CHANNEL_ACCESS_TOKEN = os.getenv("CHANNEL_ACCESS_TOKEN")
 CHANNEL_SECRET = os.getenv("CHANNEL_SECRET")
-ADMIN_USER_ID = os.getenv("USER_ID")  # أدمن رئيسي
+ADMIN_USER_ID = os.getenv("USER_ID")
 
 if not CHANNEL_ACCESS_TOKEN or not CHANNEL_SECRET:
     raise Exception("يرجى ضبط متغيرات البيئة CHANNEL_ACCESS_TOKEN و CHANNEL_SECRET")
-if not ADMIN_USER_ID:
-    logger.warning("USER_ID غير مضبوط، بعض الميزات الإدارية قد لا تعمل")
 
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
@@ -32,29 +31,26 @@ handler = WebhookHandler(CHANNEL_SECRET)
 DATA_FILE = "group_data.json"
 
 def load_data():
-    """تحميل البيانات من الملف"""
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except (json.JSONDecodeError, IOError) as e:
+        except Exception as e:
             logger.error(f"خطأ في تحميل البيانات: {e}")
             return {}
     return {}
 
 def save_data(data):
-    """حفظ البيانات إلى الملف"""
     try:
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-    except IOError as e:
+    except Exception as e:
         logger.error(f"خطأ في حفظ البيانات: {e}")
 
-# تحميل البيانات عند البدء
 group_data = load_data()
 
+# === نظام التتبع المتقدم ===
 def init_group(group_id):
-    """تهيئة بيانات المجموعة إذا لم تكن موجودة"""
     if group_id not in group_data:
         group_data[group_id] = {
             "admins": [ADMIN_USER_ID] if ADMIN_USER_ID else [],
@@ -63,22 +59,21 @@ def init_group(group_id):
                 "active": False,
                 "participants": [],
                 "castle_holders": [],
-                "start_time": None
+                "call_active": False,
+                "call_start_time": None,
+                "call_message_id": None,
+                "responded_members": [],
+                "pending_members": []
             },
             "settings": {
-                "auto_reset_lurkers": False,
-                "war_timeout_hours": 24
+                "auto_end_call_hours": 2,
+                "notify_non_responders": True
             },
             "created_at": datetime.now().isoformat()
         }
         save_data(group_data)
 
-def is_admin(group_id, user_id):
-    """التحقق إذا كان المستخدم أدمن في المجموعة"""
-    return user_id in group_data.get(group_id, {}).get("admins", [])
-
 def safe_get_profile(group_id, user_id):
-    """الحصول على معلومات العضو بشكل آمن"""
     try:
         profile = line_bot_api.get_group_member_profile(group_id, user_id)
         return profile.display_name
@@ -86,352 +81,194 @@ def safe_get_profile(group_id, user_id):
         logger.error(f"خطأ في الحصول على الملف الشخصي: {e}")
         return "مجهول"
 
-def get_user_status(group_id, user_id):
-    """الحصول على حالة المستخدم في نظام الحرب"""
+def is_admin(group_id, user_id):
+    return user_id in group_data.get(group_id, {}).get("admins", [])
+
+# === نظام نداء الحرب ===
+def start_war_call(group_id, reply_token=None):
+    """بدء نداء الحرب وتتبع المستجيبين"""
+    init_group(group_id)
     war = group_data[group_id]["war"]
-    if user_id in war["participants"]:
-        return "مشارك"
-    elif user_id in war["castle_holders"]:
-        return "مسلم القلعة"
-    else:
-        return "غير مشارك"
-
-# ==== نظام التتبع الأقصى (Lurkers) المحسن ====
-def init_lurkers_system():
-    """تهيئة نظام التتبع إذا لم يكن موجودًا"""
-    if "global" not in group_data:
-        group_data["global"] = {}
-    if "lurkers" not in group_data["global"]:
-        group_data["global"]["lurkers"] = {}
-
-def mark_lurker(group_id, user_id):
-    """تسجيل متتبع جديد"""
-    init_lurkers_system()
-    lurkers = group_data["global"]["lurkers"]
-    group_lurk = lurkers.setdefault(group_id, {
-        "readers": [], 
-        "last_msg_id": None,
-        "last_reset": datetime.now().isoformat()
-    })
-    if user_id not in group_lurk["readers"]:
-        group_lurk["readers"].append(user_id)
-    save_data(group_data)
-
-def reset_lurkers(group_id):
-    """إعادة تعيين المتتبعين"""
-    init_lurkers_system()
-    group_data["global"]["lurkers"][group_id] = {
-        "readers": [], 
-        "last_msg_id": None,
-        "last_reset": datetime.now().isoformat()
-    }
-    save_data(group_data)
-
-def auto_reset_lurkers_if_needed(group_id):
-    """إعادة تعيين المتتبعين تلقائيًا إذا انقضى وقت معين"""
-    init_lurkers_system()
-    lurkers = group_data["global"]["lurkers"]
     
-    if group_id not in lurkers:
-        return False
-        
-    last_reset_str = lurkers[group_id].get("last_reset")
-    if not last_reset_str:
-        return False
-        
-    try:
-        last_reset = datetime.fromisoformat(last_reset_str)
-        # إعادة التعيين بعد 24 ساعة
-        if datetime.now() - last_reset > timedelta(hours=24):
-            reset_lurkers(group_id)
-            return True
-    except ValueError:
-        logger.error("خطأ في تنسيق وقت إعادة التعيين")
+    # بدء النداء
+    war["call_active"] = True
+    war["call_start_time"] = datetime.now().isoformat()
+    war["responded_members"] = []
+    war["pending_members"] = list(group_data[group_id]["members"].keys())
     
-    return False
-
-def show_lurkers(group_id, reply_token):
-    """عرض المتخاذلين"""
-    init_lurkers_system()
-    lurkers = group_data["global"]["lurkers"]
-    readers = lurkers.get(group_id, {}).get("readers", [])
-    members = group_data[group_id]["members"].keys()
-    laggards = [uid for uid in members if uid not in readers]
-
-    if laggards:
-        msg = "👀 المتخاذلون:\n" + "\n".join([f"- {safe_get_profile(group_id,uid)}" for uid in laggards])
-    else:
-        msg = "🔥 لا يوجد متخاذلين، الكل متابع!"
-    line_bot_api.reply_message(reply_token, TextSendMessage(text=msg))
-
-# ==== نظام الحرب المحسن ====
-def is_war_expired(group_id):
-    """التحقق إذا انتهت مدة الحرب"""
-    war = group_data[group_id]["war"]
-    if not war["start_time"]:
-        return False
-        
-    try:
-        start_time = datetime.fromisoformat(war["start_time"])
-        timeout_hours = group_data[group_id]["settings"]["war_timeout_hours"]
-        return datetime.now() - start_time > timedelta(hours=timeout_hours)
-    except ValueError:
-        logger.error("خطأ في تنسيق وقت الحرب")
-        return False
-
-def send_war_poll(group_id, reply_token):
-    """إرسال استفتاء الحرب"""
-    if is_war_expired(group_id):
-        line_bot_api.reply_message(
-            reply_token, 
-            TextSendMessage(text="⏰ انتهت مدة الاستفتاء السابق. يرجى بدء استفتاء جديد.")
-        )
-        return
-        
-    buttons = TemplateSendMessage(
-        alt_text="⚔️ استفتاء الحرب",
-        template=ButtonsTemplate(
-            title="⚔️ استفتاء الحرب",
-            text="اختر خيارك:",
-            actions=[
-                PostbackAction(label="⚔️ مشاركة بالحرب", data="war_join"),
-                PostbackAction(label="🏰 أسلم قلعتي", data="war_castle"),
-                PostbackAction(label="📊 عرض النتائج", data="war_results")
-            ]
-        )
+    # إرسال رسالة النداء
+    message = TextSendMessage(
+        text="⚔️ نداء حرب ⚔️\n\n" +
+             "تم تفعيل نظام التتبع للنداء الحالي.\n" +
+             "سيتم تسجيل جميع الأعضاء الذين يشاهدون هذه الرسالة ويقومون بالرد.\n\n" +
+             "الرجاء استخدام الأزرار أدناه للرد:",
+        quick_reply=QuickReply(items=[
+            QuickReplyButton(action=PostbackAction(label="✅ متواجد ومستعد", data="call_response_ready")),
+            QuickReplyButton(action=PostbackAction(label="❌ غير متاح", data="call_response_not_available")),
+            QuickReplyButton(action=PostbackAction(label="📊 عرض المتواجدين", data="call_show_responders"))
+        ])
     )
-    line_bot_api.reply_message(reply_token, buttons)
-
-def send_war_results(group_id, user_id=None, reply_token=None, include_laggards=False):
-    """إرسال نتائج الحرب بشكل منسق وجميل"""
-    war = group_data[group_id]["war"]
-    members = list(group_data[group_id]["members"].keys())
-    participants = [safe_get_profile(group_id, uid) for uid in war["participants"]]
-    castles = [safe_get_profile(group_id, uid) for uid in war["castle_holders"]]
-    laggards = [uid for uid in members if uid not in war["participants"] and uid not in war["castle_holders"]]
-
-    # إنشاء رسالة منسقة مع إيموجيات وتنسيق جميل
-    msg = "🎯 تحديث حي لاستفتاء الحرب\n"
-    msg += "═" * 30 + "\n\n"
     
-    # قسم المشاركون
-    msg += "🗡️  المشاركون في القتال (" + str(len(participants)) + "):\n"
-    if participants:
-        for i, p in enumerate(participants):
-            msg += f"   {i+1}⃝  {p}\n"
-    else:
-        msg += "   ⚠️  لا يوجد مشاركون بعد\n"
-    msg += "\n"
-    
-    # قسم المسلمون
-    msg += "🏰 المسلمون قلعهم (" + str(len(castles)) + "):\n"
-    if castles:
-        for i, p in enumerate(castles):
-            msg += f"   {i+1}⃝  {p}\n"
-    else:
-        msg += "   ⚠️  لا يوجد مسلمون بعد\n"
-    msg += "\n"
-    
-    # إضافة معلومات عن المستخدم الحالي إذا كان معطى
-    if user_id:
-        user_status = get_user_status(group_id, user_id)
-        user_name = safe_get_profile(group_id, user_id)
-        msg += f"📝 حالتك: {user_status} - {user_name}\n\n"
-    
-    # قسم الإحصائيات
-    total_members = len(members)
-    participating = len(participants) + len(castles)
-    participation_rate = (participating / total_members * 100) if total_members > 0 else 0
-    
-    msg += f"📊 الإحصائيات:\n"
-    msg += f"   👥 إجمالي الأعضاء: {total_members}\n"
-    msg += f"   ✅ المشاركون: {participating}\n"
-    msg += f"   📈 نسبة المشاركة: {participation_rate:.1f}%\n\n"
-    
-    # إضافة المتخاذلين إذا طلب
-    if include_laggards and laggards:
-        msg += "🐌 المتخاذلون:\n"
-        for uid in laggards:
-            msg += f"   ❌ {safe_get_profile(group_id, uid)}\n"
-    elif include_laggards:
-        msg += "🎉 لا يوجد متخاذلين! الكل مشارك!\n"
-
-    # إضافة وقت التحديث
-    update_time = datetime.now().strftime("%H:%M:%S")
-    msg += f"\n🕒 آخر تحديث: {update_time}"
-
-    # إرسال الرسالة
     if reply_token:
-        line_bot_api.reply_message(reply_token, TextSendMessage(text=msg))
+        # إذا كان نداء مباشر من أدمن
+        line_bot_api.reply_message(reply_token, message)
+        # حفظ معرف الرسالة للنداء
+        war["call_message_id"] = "direct_call"
     else:
-        line_bot_api.push_message(group_id, TextSendMessage(text=msg))
+        # إذا كان نداء تلقائي
+        result = line_bot_api.push_message(group_id, message)
+        war["call_message_id"] = result.message_id
+    
+    save_data(group_data)
+    return True
 
-def send_admin_panel(group_id, reply_token):
-    """إرسال لوحة تحكم الأدمن"""
-    buttons = TemplateSendMessage(
-        alt_text="لوحة تحكم الأدمن",
-        template=ButtonsTemplate(
-            title="لوحة التحكم",
-            text="اختر الإعداد الذي تريد تعديله:",
-            actions=[
-                PostbackAction(label="⚙️ إعدادات التتبع", data="admin_lurkers"),
-                PostbackAction(label="⚔️ إعدادات الحرب", data="admin_war"),
-                PostbackAction(label="📊 إحصائيات المجموعة", data="admin_stats")
-            ]
-        )
-    )
-    line_bot_api.reply_message(reply_token, buttons)
+def process_call_response(group_id, user_id, response_type):
+    """معالجة ردود الأعضاء على النداء"""
+    if group_id not in group_data or not group_data[group_id]["war"]["call_active"]:
+        return False
+    
+    war = group_data[group_id]["war"]
+    user_name = safe_get_profile(group_id, user_id)
+    
+    # إضافة المستخدم إلى القائمة المناسبة
+    if response_type == "ready" and user_id not in war["responded_members"]:
+        war["responded_members"].append(user_id)
+        response_text = f"✅ تم تسجيل {user_name} كمستعد للمعركة!"
+    elif response_type == "not_available" and user_id in war["pending_members"]:
+        war["pending_members"].remove(user_id)
+        response_text = f"❌ {user_name} غير متاح حالياً."
+    else:
+        response_text = f"⚠️ {user_name}، لقد قمت بالرد مسبقاً."
+    
+    # إرسال تأكيد للمستخدم
+    try:
+        line_bot_api.push_message(user_id, TextSendMessage(text=response_text))
+    except Exception as e:
+        logger.error(f"لا يمكن إرسال رسالة للمستخدم {user_id}: {e}")
+    
+    save_data(group_data)
+    return True
 
-# ==== التعامل مع الرسائل ====
+def get_call_status(group_id, detailed=False):
+    """الحصول على حالة النداء الحالي"""
+    if group_id not in group_data or not group_data[group_id]["war"]["call_active"]:
+        return None
+    
+    war = group_data[group_id]["war"]
+    total_members = len(group_data[group_id]["members"])
+    responded = len(war["responded_members"])
+    pending = len(war["pending_members"])
+    
+    status = {
+        "total_members": total_members,
+        "responded": responded,
+        "pending": pending,
+        "response_rate": (responded / total_members * 100) if total_members > 0 else 0,
+        "start_time": war["call_start_time"]
+    }
+    
+    if detailed:
+        status["responded_members"] = [safe_get_profile(group_id, uid) for uid in war["responded_members"]]
+        status["pending_members"] = [safe_get_profile(group_id, uid) for uid in war["pending_members"]]
+    
+    return status
+
+def end_war_call(group_id):
+    """إنهاء نداء الحرب وعرض النتائج"""
+    if group_id not in group_data or not group_data[group_id]["war"]["call_active"]:
+        return False
+    
+    war = group_data[group_id]["war"]
+    war["call_active"] = False
+    
+    status = get_call_status(group_id, detailed=True)
+    
+    # إنشاء تقرير النتائج
+    report = f"📊 تقرير نداء الحرب 📊\n\n"
+    report += f"⏰ مدة النداء: {datetime.fromisoformat(war['call_start_time']).strftime('%Y-%m-%d %H:%M')}\n"
+    report += f"👥 إجمالي الأعضاء: {status['total_members']}\n"
+    report += f"✅ المستجيبون: {status['responded']}\n"
+    report += f"📊 نسبة الاستجابة: {status['response_rate']:.1f}%\n\n"
+    
+    report += "🎖️ المستعدون للمعركة:\n"
+    if status['responded_members']:
+        for i, member in enumerate(status['responded_members'], 1):
+            report += f"{i}. {member}\n"
+    else:
+        report += "⚠️ لا يوجد مستعدون\n"
+    
+    report += "\n👤 المتخاذلون:\n"
+    if status['pending_members']:
+        for i, member in enumerate(status['pending_members'], 1):
+            report += f"{i}. {member}\n"
+    else:
+        report += "🎉 لا يوجد متخاذلون! الكل مستعد!"
+    
+    # إرسال التقرير
+    line_bot_api.push_message(group_id, TextSendMessage(text=report))
+    save_data(group_data)
+    
+    return True
+
+# === معالجة الأحداث ===
 @handler.add(MessageEvent, message=TextMessage)
 def on_message(event):
     if not hasattr(event.source, "group_id"):
-        # تجاهل الرسائل خارج المجموعات
         return
 
     group_id = event.source.group_id
     user_id = event.source.user_id
-    text = (event.message.text or "").strip()
+    text = event.message.text.strip()
     
-    # تهيئة المجموعة إذا لزم الأمر
     init_group(group_id)
-    
-    # تحديث معلومات الأعضاء
     group_data[group_id]["members"][user_id] = safe_get_profile(group_id, user_id)
-    
-    # تسجيل القراءة لكل عضو
-    mark_lurker(group_id, user_id)
-    
-    # التحقق من إعادة التعيين التلقائي إذا كان مفعلًا
-    if group_data[group_id]["settings"]["auto_reset_lurkers"]:
-        auto_reset_lurkers_if_needed(group_id)
-    
     save_data(group_data)
 
-    # أوامر عامة
-    if text.lower() == ".مساعد":
-        help_msg = """
-        🎮 أوامر البوت:
-        
-        ⚔️ نظام الحرب:
-        .war - بدء استفتاء حرب
-        .war r - عرض نتائج الحرب
-        .war rl - عرض النتائج مع المتخاذلين
-        .war s - إيقاف الاستفتاء
-        
-        👀 نظام التتبع:
-        .lurkers - عرض المتخاذلين
-        .lurkers reset - إعادة تعيين المتتبعين
-        
-        ⚙️ للأدمن فقط:
-        .admin - لوحة تحكم الأدمن
-        """
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=help_msg))
-    
     # أوامر الأدمن
     if is_admin(group_id, user_id):
-        if text.lower() == ".lurkers":
-            show_lurkers(group_id, event.reply_token)
-        elif text.lower() == ".lurkers reset":
-            reset_lurkers(group_id)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="♻️ تم إعادة تعيين المتتبعين."))
-        elif text.lower() == ".admin":
-            send_admin_panel(group_id, event.reply_token)
+        if text == ".نداء":
+            start_war_call(group_id, event.reply_token)
+        elif text == ".انهاء النداء":
+            end_war_call(group_id)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ تم إنهاء النداء وإظهار النتائج."))
+        elif text == ".حالة النداء":
+            status = get_call_status(group_id, detailed=True)
+            if status:
+                report = f"📈 حالة النداء الحالي:\n\n"
+                report += f"👥 الأعضاء: {status['total_members']}\n"
+                report += f"✅ المستجيبون: {status['responded']}\n"
+                report += f"⏳ المنتظرون: {status['pending']}\n"
+                report += f"📊 النسبة: {status['response_rate']:.1f}%\n"
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=report))
+            else:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ لا يوجد نداء نشط حالياً."))
 
-        # أوامر الحرب
-        elif text == ".war":
-            group_data[group_id]["war"]["active"] = True
-            group_data[group_id]["war"]["participants"] = []
-            group_data[group_id]["war"]["castle_holders"] = []
-            group_data[group_id]["war"]["start_time"] = datetime.now().isoformat()
-            save_data(group_data)
-            send_war_poll(group_id, event.reply_token)
-        elif text == ".war r":
-            send_war_results(group_id, user_id, event.reply_token)
-        elif text == ".war rl":
-            send_war_results(group_id, user_id, event.reply_token, include_laggards=True)
-        elif text == ".war s":
-            group_data[group_id]["war"]["active"] = False
-            group_data[group_id]["war"]["participants"] = []
-            group_data[group_id]["war"]["castle_holders"] = []
-            group_data[group_id]["war"]["start_time"] = None
-            save_data(group_data)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⛔ تم إيقاف الاستفتاء وإفراغ القوائم."))
-
-# ==== التعامل مع الاختيارات ====
 @handler.add(PostbackEvent)
 def on_postback(event):
     group_id = event.source.group_id
     user_id = event.source.user_id
     data = event.postback.data
-    name = safe_get_profile(group_id, user_id)
     
-    init_group(group_id)
-    
-    # معالجة أوامر الأدمن
-    if data == "admin_lurkers":
-        if not is_admin(group_id, user_id):
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ ليس لديك صلاحية للوصول إلى هذه اللوحة."))
-            return
-            
-        confirm = TemplateSendMessage(
-            alt_text="إعدادات التتبع",
-            template=ConfirmTemplate(
-                text="اختر الإعداد الذي تريد تعديله:",
-                actions=[
-                    PostbackAction(label="تفعيل إعادة التعيين التلقائي", data="lurkers_auto_on"),
-                    PostbackAction(label="تعطيل إعادة التعيين التلقائي", data="lurkers_auto_off")
-                ]
-            )
-        )
-        line_bot_api.reply_message(event.reply_token, confirm)
-        
-    elif data == "lurkers_auto_on":
-        group_data[group_id]["settings"]["auto_reset_lurkers"] = True
-        save_data(group_data)
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ تم تفعيل إعادة التعيين التلقائي للمتتبعين."))
-        
-    elif data == "lurkers_auto_off":
-        group_data[group_id]["settings"]["auto_reset_lurkers"] = False
-        save_data(group_data)
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ تم تعطيل إعادة التعيين التلقائي للمتتبعين."))
-    
-    # معالجة استفتاء الحرب
-    elif data.startswith("war_"):
-        war = group_data[group_id]["war"]
-        
-        if not war["active"]:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ الاستفتاء متوقف."))
-            return
-            
-        if is_war_expired(group_id):
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⏰ انتهت مدة هذا الاستفتاء."))
-            return
+    if data == "call_response_ready":
+        process_call_response(group_id, user_id, "ready")
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ تم تسجيلك كمستعد للمعركة!"))
+    elif data == "call_response_not_available":
+        process_call_response(group_id, user_id, "not_available")
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ تم تسجيلك كغير متاح حالياً."))
+    elif data == "call_show_responders":
+        status = get_call_status(group_id, detailed=True)
+        if status:
+            report = "🎖️ المستعدون حتى الآن:\n\n"
+            if status['responded_members']:
+                for i, member in enumerate(status['responded_members'], 1):
+                    report += f"{i}. {member}\n"
+            else:
+                report += "⚠️ لا يوجد مستعدون بعد\n"
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=report))
+        else:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ لا يوجد نداء نشط حالياً."))
 
-        if data == "war_join":
-            if user_id not in war["participants"]:
-                war["participants"].append(user_id)
-            if user_id in war["castle_holders"]:
-                war["castle_holders"].remove(user_id)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"✅ تم تسجيلك كمشارك في الحرب، {name}"))
-                
-        elif data == "war_castle":
-            if user_id not in war["castle_holders"]:
-                war["castle_holders"].append(user_id)
-            if user_id in war["participants"]:
-                war["participants"].remove(user_id)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"✅ تم تسجيلك كمسلم للقلعة، {name}"))
-                
-        elif data == "war_results":
-            send_war_results(group_id, user_id, event.reply_token)
-            
-        save_data(group_data)
-        
-        # بعد أي اختيار، نرسل تحديث النتائج للمجموعة (عدا طلب عرض النتائج فقط)
-        if data != "war_results":
-            send_war_results(group_id, user_id)
-
-# ==== تشغيل السيرفر ====
+# === تشغيل السيرفر ===
 app = Flask(__name__)
 
 @app.route("/callback", methods=["POST"])
@@ -439,20 +276,20 @@ def callback():
     signature = request.headers["X-Line-Signature"]
     body = request.get_data(as_text=True)
     
-    logger.info("Request received: %s", body)
-
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
-        logger.error("Invalid signature. Please check your channel access token/channel secret.")
         abort(400)
+    except Exception as e:
+        logger.error(f"خطأ في معالجة الطلب: {e}")
+        abort(500)
 
     return "OK"
 
 @app.route("/", methods=["GET"])
 def home():
-    return "Bot is running!"
+    return "✅ بوت إدارة المجموعة يعمل بشكل صحيح"
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=port)
