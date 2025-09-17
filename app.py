@@ -224,7 +224,11 @@ def process_war_response(group_id, user_id, response_type):
     except Exception as e:
         logger.error(f"لا يمكن إرسال رسالة للمستخدم {user_id}: {e}")
     
-    # إرسال تحديث النتائج للمجموعة
+    # إرسال رسالة تأكيد للمجموعة مع اسم المستخدم
+    group_message = f"{user_name} قام بتحديث اختياره!\n{response_text}"
+    line_bot_api.push_message(group_id, TextSendMessage(text=group_message))
+    
+    # إرسال تحديث النتائج للمجموعة (يعيد الاستفتاء)
     send_war_update(group_id)
     
     return True
