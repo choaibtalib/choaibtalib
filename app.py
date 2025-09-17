@@ -1,8 +1,8 @@
 import os
 import json
 import logging
-import time
 import threading
+import time
 from datetime import datetime, timedelta
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
@@ -50,19 +50,58 @@ def save_data(data):
 
 group_data = load_data()
 
-# === نظام التتبع المتقدم مع تقنية الكشف ===
+# === نظام التذكير بالصلاة على النبي ===
+def start_prayer_reminder():
+    """بدء نظام التذكير بالصلاة على النبي كل نصف ساعة"""
+    def reminder_loop():
+        while True:
+            try:
+                now = datetime.now()
+                # التذكير كل 30 دقيقة
+                if now.minute % 30 == 0 and now.second == 0:
+                    prayer_message = "🕌 *تذكير:* صلوا على النبي محمد صلى الله عليه وسلم\n\n" \
+                                    "ﷺ اللهم صل على محمد وعلى آل محمد كما صليت على إبراهيم وعلى آل إبراهيم " \
+                                    "إنك حميد مجيد، اللهم بارك على محمد وعلى آل محمد كما باركت على إبراهيم " \
+                                    "وعلى آل إبراهيم إنك حميد مجيد ﷺ"
+                    
+                    # إرسال التذكير لجميع المجموعات
+                    for group_id in group_data.keys():
+                        try:
+                            line_bot_api.push_message(group_id, TextSendMessage(text=prayer_message))
+                            logger.info(f"تم إرسال تذكير الصلاة على النبي للمجموعة {group_id}")
+                        except Exception as e:
+                            logger.error(f"خطأ في إرسال التذكير للمجموعة {group_id}: {e}")
+                
+                time.sleep(1)  # التحقق كل ثانية
+            except Exception as e:
+                logger.error(f"خطأ في حلقة التذكير: {e}")
+                time.sleep(60)  # الانتظار دقيقة قبل إعادة المحاولة
+    
+    # بدء التذكير في خيط منفصل
+    thread = threading.Thread(target=reminder_loop, daemon=True)
+    thread.start()
+    logger.info("نظام التذكير بالصلاة على النبي مفعل")
+
+# === نظام التتبع المتقدم ===
 def init_group(group_id):
     if group_id not in group_data:
         group_data[group_id] = {
             "admins": [ADMIN_USER_ID] if ADMIN_USER_ID else [],
             "members": {},
-            "tracking": {
+            "war": {
                 "active": False,
-                "start_time": None,
-                "tracking_message_id": None,
-                "viewers": [],
-                "non_viewers": [],
-                "responders": []
+                "participants": [],        # مشاركون ومستعدون
+                "castle_holders": [],      # مسلمو القلاع
+                "reserve_players": [],     # لاعبون احتياطيون
+                "call_active": False,
+                "call_start_time": None,
+                "call_message_id": None,
+                "last_update_message_id": None
+            },
+            "settings": {
+                "auto_end_call_hours": 2,
+                "notify_non_responders": True,
+                "prayer_reminders": True
             },
             "created_at": datetime.now().isoformat()
         }
@@ -79,141 +118,184 @@ def safe_get_profile(group_id, user_id):
 def is_admin(group_id, user_id):
     return user_id in group_data.get(group_id, {}).get("admins", [])
 
-def start_tracking_session(group_id, reply_token=None):
-    """بدء جلسة تتبع للمشاهدين"""
-    init_group(group_id)
-    tracking = group_data[group_id]["tracking"]
+def create_war_poll_message():
+    """إنشاء رسالة استفتاء الحرب بشكل جميل"""
+    return TemplateSendMessage(
+        alt_text="⚔️ استفتاء الحرب - تحديث حي",
+        template=ButtonsTemplate(
+            title="⚔️ استفتاء الحرب",
+            text="اختر حالتك في المعركة القادمة:",
+            actions=[
+                PostbackAction(label="✅ مشارك ومستعد", data="war_participate"),
+                PostbackAction(label="🏰 أسلم قلعتي", data="war_surrender"),
+                PostbackAction(label="🛡️ لاعب احتياطي", data="war_reserve"),
+                PostbackAction(label="📊 عرض النتائج", data="war_show_results")
+            ]
+        )
+    )
+
+def send_war_update(group_id, user_id=None):
+    """إرسال تحديث النتائج بعد كل اختيار"""
+    war = group_data[group_id]["war"]
     
-    # بدء جلسة التتبع
-    tracking["active"] = True
-    tracking["start_time"] = datetime.now().isoformat()
-    tracking["viewers"] = []
-    tracking["non_viewers"] = list(group_data[group_id]["members"].keys())
-    tracking["responders"] = []
+    # إنشاء تقرير النتائج المحدث
+    participants = [safe_get_profile(group_id, uid) for uid in war["participants"]]
+    castles = [safe_get_profile(group_id, uid) for uid in war["castle_holders"]]
+    reserves = [safe_get_profile(group_id, uid) for uid in war["reserve_players"]]
     
-    # إنشاء رسالة تتبع خاصة
-    tracking_message = TextSendMessage(
-        text="👁️‍🗨️ نظام التتبع النشط 👁️‍🗨️\n\n" +
-             "تم تفعيل نظام كشف المشاهدين للنداء الحالي.\n" +
-             "سيتم تسجيل جميع الأعضاء الذين يشاهدون هذه الرسالة.\n\n" +
-             "الرجاء استخدام الزر أدناه للتأكيد:",
+    total_members = len(group_data[group_id]["members"])
+    total_responded = len(participants) + len(castles) + len(reserves)
+    
+    # الرسالة الأساسية
+    message = TextSendMessage(
+        text=f"⚔️ تحديث حي لاستفتاء الحرب ⚔️\n\n"
+             f"✅ المشاركون: {len(participants)}\n"
+             f"🏰 المسلمون: {len(castles)}\n"
+             f"🛡️ الاحتياط: {len(reserves)}\n"
+             f"📊 الاستجابة: {total_responded}/{total_members}\n\n"
+             f"اختر حالتك من الأزرار أدناه:",
         quick_reply=QuickReply(items=[
-            QuickReplyButton(action=PostbackAction(label="✅ تأكيد المشاهدة", data="tracking_confirm_view")),
-            QuickReplyButton(action=PostbackAction(label="📊 عرض المشاهدين", data="tracking_show_viewers"))
+            QuickReplyButton(action=PostbackAction(label="✅ مشارك", data="war_participate")),
+            QuickReplyButton(action=PostbackAction(label="🏰 أسلم قلعتي", data="war_surrender")),
+            QuickReplyButton(action=PostbackAction(label="🛡️ احتياطي", data="war_reserve")),
+            QuickReplyButton(action=PostbackAction(label="📊 النتائج", data="war_show_results"))
         ])
     )
     
+    # محاولة تحديث الرسالة السابقة إذا كانت موجودة
+    try:
+        if war["last_update_message_id"]:
+            line_bot_api.push_message(
+                group_id,
+                TextSendMessage(
+                    text="🔄 تم تحديث النتائج، انظر الرسالة الأخيرة",
+                    reply_token=war["last_update_message_id"]
+                )
+            )
+    except:
+        pass
+    
+    # إرسال الرسالة الجديدة وحفظ معرفها
+    result = line_bot_api.push_message(group_id, message)
+    war["last_update_message_id"] = result.message_id
+    save_data(group_data)
+
+def start_war_poll(group_id, reply_token=None):
+    """بدء استفتاء الحرب"""
+    init_group(group_id)
+    war = group_data[group_id]["war"]
+    
+    # إعادة تعيين البيانات
+    war["active"] = True
+    war["participants"] = []
+    war["castle_holders"] = []
+    war["reserve_players"] = []
+    war["call_start_time"] = datetime.now().isoformat()
+    war["last_update_message_id"] = None
+    
+    # إرسال رسالة الاستفتاء الأولى
+    poll_message = create_war_poll_message()
+    
     if reply_token:
-        # إرسال الرد
-        line_bot_api.reply_message(reply_token, tracking_message)
+        line_bot_api.reply_message(reply_token, poll_message)
     else:
-        # إرسال كبوشن
-        result = line_bot_api.push_message(group_id, tracking_message)
-        tracking["tracking_message_id"] = result.message_id
+        result = line_bot_api.push_message(group_id, poll_message)
+        war["last_update_message_id"] = result.message_id
+    
+    save_data(group_data)
+    return True
+
+def process_war_response(group_id, user_id, response_type):
+    """معالجة ردود الأعضاء على الاستفتاء"""
+    war = group_data[group_id]["war"]
+    user_name = safe_get_profile(group_id, user_id)
+    
+    # إزالة المستخدم من جميع القوائم أولاً
+    if user_id in war["participants"]:
+        war["participants"].remove(user_id)
+    if user_id in war["castle_holders"]:
+        war["castle_holders"].remove(user_id)
+    if user_id in war["reserve_players"]:
+        war["reserve_players"].remove(user_id)
+    
+    # إضافة المستخدم إلى القائمة المناسبة
+    response_text = ""
+    if response_type == "participate":
+        war["participants"].append(user_id)
+        response_text = f"✅ تم تسجيل {user_name} كمشارك في المعركة!"
+    elif response_type == "surrender":
+        war["castle_holders"].append(user_id)
+        response_text = f"🏰 تم تسجيل {user_name} كمسلم للقلعة!"
+    elif response_type == "reserve":
+        war["reserve_players"].append(user_id)
+        response_text = f"🛡️ تم تسجيل {user_name} كلاعب احتياطي!"
+    
+    # إرسال تأكيد للمستخدم
+    try:
+        line_bot_api.push_message(user_id, TextSendMessage(text=response_text))
+    except Exception as e:
+        logger.error(f"لا يمكن إرسال رسالة للمستخدم {user_id}: {e}")
     
     save_data(group_data)
     
-    # بدء المراقبة في الخلفية
-    threading.Thread(target=monitor_viewers, args=(group_id,), daemon=True).start()
+    # إرسال تحديث النتائج للمجموعة
+    send_war_update(group_id, user_id)
     
     return True
 
-def monitor_viewers(group_id):
-    """مراقبة المشاهدين في الخلفية"""
-    init_group(group_id)
-    tracking = group_data[group_id]["tracking"]
+def show_war_results(group_id, reply_token=None, detailed=False):
+    """عرض نتائج الاستفتاء"""
+    war = group_data[group_id]["war"]
     
-    # مدة المراقبة (5 دقائق)
-    end_time = datetime.now() + timedelta(minutes=5)
+    participants = [safe_get_profile(group_id, uid) for uid in war["participants"]]
+    castles = [safe_get_profile(group_id, uid) for uid in war["castle_holders"]]
+    reserves = [safe_get_profile(group_id, uid) for uid in war["reserve_players"]]
     
-    while datetime.now() < end_time and tracking["active"]:
-        try:
-            # محاكاة آلية الكشف (هذه تقنية افتراضية)
-            current_members = list(group_data[group_id]["members"].keys())
-            
-            for user_id in current_members:
-                if user_id not in tracking["viewers"] and user_id not in tracking["responders"]:
-                    # محاكاة احتمال المشاهدة بناء على الوقت
-                    join_time = tracking["start_time"]
-                    time_factor = min(1.0, (datetime.now() - datetime.fromisoformat(join_time)).total_seconds() / 300)
-                    
-                    # زيادة فرصة الكشف مع مرور الوقت
-                    if time_factor > 0.7:
-                        detect_viewer(group_id, user_id)
-            
-            time.sleep(30)  # التحقق كل 30 ثانية
-            
-        except Exception as e:
-            logger.error(f"خطأ في مراقبة المشاهدين: {e}")
-            break
-    
-    # إنهاء جلسة التتبع تلقائياً بعد الوقت المحدد
-    if tracking["active"]:
-        end_tracking_session(group_id)
-
-def detect_viewer(group_id, user_id):
-    """كشف مشاهد جديد"""
-    init_group(group_id)
-    tracking = group_data[group_id]["tracking"]
-    
-    if user_id not in tracking["viewers"]:
-        tracking["viewers"].append(user_id)
-        if user_id in tracking["non_viewers"]:
-            tracking["non_viewers"].remove(user_id)
-        
-        save_data(group_data)
-        return True
-    
-    return False
-
-def end_tracking_session(group_id, reply_token=None):
-    """إنهاء جلسة التتبع وعرض النتائج"""
-    init_group(group_id)
-    tracking = group_data[group_id]["tracking"]
-    
-    if not tracking["active"]:
-        if reply_token:
-            line_bot_api.reply_message(reply_token, TextSendMessage(text="⚠️ لا يوجد جلسة تتبع نشطة."))
-        return False
-    
-    tracking["active"] = False
     total_members = len(group_data[group_id]["members"])
-    viewers_count = len(tracking["viewers"])
-    responders_count = len(tracking["responders"])
+    total_responded = len(participants) + len(castles) + len(reserves)
     
-    # إنشاء تقرير النتائج
-    report = "📊 تقرير نظام التتبع 📊\n\n"
-    report += f"⏰ وقت البدء: {datetime.fromisoformat(tracking['start_time']).strftime('%H:%M:%S')}\n"
+    # إنشاء التقرير
+    report = "📊 تقرير استفتاء الحرب 📊\n\n"
+    report += f"⏰ وقت البدء: {datetime.fromisoformat(war['call_start_time']).strftime('%H:%M:%S')}\n"
     report += f"👥 إجمالي الأعضاء: {total_members}\n"
-    report += f"👀 المشاهدون: {viewers_count}\n"
-    report += f"✅ المستجيبون: {responders_count}\n"
-    report += f"📈 نسبة المشاهدة: {(viewers_count/total_members*100):.1f}%\n\n"
+    report += f"📊 المستجيبون: {total_responded}\n\n"
     
-    report += "🎯 المشاهدون المؤكدون:\n"
-    if tracking["viewers"]:
-        for i, viewer_id in enumerate(tracking["viewers"][:15], 1):
-            report += f"{i}. {safe_get_profile(group_id, viewer_id)}\n"
-        if len(tracking["viewers"]) > 15:
-            report += f"... و{len(tracking['viewers'])-15} آخرون\n"
+    report += "✅ المشاركون في المعركة:\n"
+    if participants:
+        for i, member in enumerate(participants, 1):
+            report += f"{i}. {member}\n"
     else:
-        report += "⚠️ لا يوجد مشاهدون\n"
+        report += "⚠️ لا يوجد مشاركون\n"
     
-    report += "\n🚫 المتغيبون:\n"
-    if tracking["non_viewers"]:
-        for i, non_viewer_id in enumerate(tracking["non_viewers"][:10], 1):
-            report += f"{i}. {safe_get_profile(group_id, non_viewer_id)}\n"
-        if len(tracking["non_viewers"]) > 10:
-            report += f"... و{len(tracking['non_viewers'])-10} آخرون\n"
+    report += "\n🏰 مسلمو القلاع:\n"
+    if castles:
+        for i, member in enumerate(castles, 1):
+            report += f"{i}. {member}\n"
     else:
-        report += "🎉 لا يوجد متغيبون!\n"
+        report += "⚠️ لا يوجد مسلمون\n"
     
-    # إرسال التقرير
-    line_bot_api.push_message(group_id, TextSendMessage(text=report))
-    save_data(group_data)
+    report += "\n🛡️ اللاعبون الاحتياطيون:\n"
+    if reserves:
+        for i, member in enumerate(reserves, 1):
+            report += f"{i}. {member}\n"
+    else:
+        report += "⚠️ لا يوجد احتياطيون\n"
+    
+    report += f"\n📈 نسبة الاستجابة: {(total_responded/total_members*100):.1f}%"
     
     if reply_token:
-        line_bot_api.reply_message(reply_token, TextSendMessage(text="✅ تم إنهاء جلسة التتبع وإظهار النتائج."))
+        line_bot_api.reply_message(reply_token, TextSendMessage(text=report))
+    else:
+        line_bot_api.push_message(group_id, TextSendMessage(text=report))
+
+def end_war_poll(group_id):
+    """إنهاء استفتاء الحرب"""
+    war = group_data[group_id]["war"]
+    war["active"] = False
     
+    # عرض النتائج النهائية
+    show_war_results(group_id)
+    save_data(group_data)
     return True
 
 # === معالجة الأحداث ===
@@ -232,21 +314,21 @@ def on_message(event):
 
     # أوامر الأدمن
     if is_admin(group_id, user_id):
-        if text == ".تتبع":
-            start_tracking_session(group_id, event.reply_token)
-        elif text == ".انهاء التتبع":
-            end_tracking_session(group_id, event.reply_token)
-        elif text == ".حالة التتبع":
-            tracking = group_data[group_id]["tracking"]
-            if tracking["active"]:
-                status = f"📈 حالة التتبع:\n\n"
-                status += f"👥 الأعضاء: {len(group_data[group_id]['members'])}\n"
-                status += f"👀 المشاهدون: {len(tracking['viewers'])}\n"
-                status += f"✅ المستجيبون: {len(tracking['responders'])}\n"
-                status += f"⏰ المتبقي: {5 - (datetime.now() - datetime.fromisoformat(tracking['start_time'])).seconds // 60} دقائق"
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=status))
-            else:
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ لا يوجد تتبع نشط حالياً."))
+        if text == ".استفتاء":
+            start_war_poll(group_id, event.reply_token)
+        elif text == ".انهاء الاستفتاء":
+            end_war_poll(group_id)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ تم إنهاء الاستفتاء وعرض النتائج النهائية."))
+        elif text == ".النتائج":
+            show_war_results(group_id, event.reply_token, detailed=True)
+        elif text == ".تفعيل التذكير":
+            group_data[group_id]["settings"]["prayer_reminders"] = True
+            save_data(group_data)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ تم تفعيل التذكير بالصلاة على النبي."))
+        elif text == ".تعطيل التذكير":
+            group_data[group_id]["settings"]["prayer_reminders"] = False
+            save_data(group_data)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ تم تعطيل التذكير بالصلاة على النبي."))
 
 @handler.add(PostbackEvent)
 def on_postback(event):
@@ -254,32 +336,17 @@ def on_postback(event):
     user_id = event.source.user_id
     data = event.postback.data
     
-    init_group(group_id)
-    
-    if data == "tracking_confirm_view":
-        tracking = group_data[group_id]["tracking"]
-        if user_id not in tracking["responders"]:
-            tracking["responders"].append(user_id)
-            detect_viewer(group_id, user_id)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ تم تأكيد مشاهدتك وتسجيلك في النظام."))
-        else:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ لقد قمت بتأكيد مشاهدتك مسبقاً."))
-        save_data(group_data)
-    
-    elif data == "tracking_show_viewers":
-        tracking = group_data[group_id]["tracking"]
-        if tracking["active"]:
-            report = "👀 المشاهدون حتى الآن:\n\n"
-            if tracking["viewers"]:
-                for i, viewer_id in enumerate(tracking["viewers"][:10], 1):
-                    report += f"{i}. {safe_get_profile(group_id, viewer_id)}\n"
-                if len(tracking["viewers"]) > 10:
-                    report += f"... و{len(tracking['viewers'])-10} آخرون\n"
-            else:
-                report += "⚠️ لا يوجد مشاهدون بعد\n"
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=report))
-        else:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ لا يوجد تتبع نشط حالياً."))
+    if data == "war_participate":
+        process_war_response(group_id, user_id, "participate")
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ تم تسجيلك كمشارك في المعركة!"))
+    elif data == "war_surrender":
+        process_war_response(group_id, user_id, "surrender")
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="🏰 تم تسجيلك كمسلم للقلعة!"))
+    elif data == "war_reserve":
+        process_war_response(group_id, user_id, "reserve")
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="🛡️ تم تسجيلك كلاعب احتياطي!"))
+    elif data == "war_show_results":
+        show_war_results(group_id, event.reply_token)
 
 # === تشغيل السيرفر ===
 app = Flask(__name__)
@@ -301,8 +368,11 @@ def callback():
 
 @app.route("/", methods=["GET"])
 def home():
-    return "✅ بوت التتبع المتقدم يعمل بشكل صحيح"
+    return "✅ البوت المتكامل يعمل بشكل صحيح"
 
 if __name__ == "__main__":
+    # بدء نظام التذكير بالصلاة على النبي
+    start_prayer_reminder()
+    
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
