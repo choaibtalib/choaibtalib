@@ -202,24 +202,65 @@ def send_war_poll(group_id, reply_token):
     )
     line_bot_api.reply_message(reply_token, buttons)
 
-def send_war_results(group_id, reply_token=None, include_laggards=False):
-    """إرسال نتائج الحرب"""
+def send_war_results(group_id, user_id=None, reply_token=None, include_laggards=False):
+    """إرسال نتائج الحرب بشكل منسق وجميل"""
     war = group_data[group_id]["war"]
     members = list(group_data[group_id]["members"].keys())
     participants = [safe_get_profile(group_id, uid) for uid in war["participants"]]
     castles = [safe_get_profile(group_id, uid) for uid in war["castle_holders"]]
     laggards = [uid for uid in members if uid not in war["participants"] and uid not in war["castle_holders"]]
 
-    msg = f"⚔️ استفتاء الحرب\n\n"
-    msg += f"🗡️ المشاركون ({len(participants)}):\n" + ("\n".join([f"{i+1}. {p}" for i, p in enumerate(participants)]) or "لا يوجد") + "\n\n"
-    msg += f"🏰 المسلمون ({len(castles)}):\n" + ("\n".join([f"{i+1}. {p}" for i, p in enumerate(castles)]) or "لا يوجد") + "\n\n"
+    # إنشاء رسالة منسقة مع إيموجيات وتنسيق جميل
+    msg = "🎯 تحديث حي لاستفتاء الحرب\n"
+    msg += "═" * 30 + "\n\n"
+    
+    # قسم المشاركون
+    msg += "🗡️  المشاركون في القتال (" + str(len(participants)) + "):\n"
+    if participants:
+        for i, p in enumerate(participants):
+            msg += f"   {i+1}⃝  {p}\n"
+    else:
+        msg += "   ⚠️  لا يوجد مشاركون بعد\n"
+    msg += "\n"
+    
+    # قسم المسلمون
+    msg += "🏰 المسلمون قلعهم (" + str(len(castles)) + "):\n"
+    if castles:
+        for i, p in enumerate(castles):
+            msg += f"   {i+1}⃝  {p}\n"
+    else:
+        msg += "   ⚠️  لا يوجد مسلمون بعد\n"
+    msg += "\n"
+    
+    # إضافة معلومات عن المستخدم الحالي إذا كان معطى
+    if user_id:
+        user_status = get_user_status(group_id, user_id)
+        user_name = safe_get_profile(group_id, user_id)
+        msg += f"📝 حالتك: {user_status} - {user_name}\n\n"
+    
+    # قسم الإحصائيات
+    total_members = len(members)
+    participating = len(participants) + len(castles)
+    participation_rate = (participating / total_members * 100) if total_members > 0 else 0
+    
+    msg += f"📊 الإحصائيات:\n"
+    msg += f"   👥 إجمالي الأعضاء: {total_members}\n"
+    msg += f"   ✅ المشاركون: {participating}\n"
+    msg += f"   📈 نسبة المشاركة: {participation_rate:.1f}%\n\n"
+    
+    # إضافة المتخاذلين إذا طلب
+    if include_laggards and laggards:
+        msg += "🐌 المتخاذلون:\n"
+        for uid in laggards:
+            msg += f"   ❌ {safe_get_profile(group_id, uid)}\n"
+    elif include_laggards:
+        msg += "🎉 لا يوجد متخاذلين! الكل مشارك!\n"
 
-    if include_laggards:
-        if laggards:
-            msg += "🐍 المتخاذلون:\n" + "\n".join([f"- {safe_get_profile(group_id, uid)}" for uid in laggards])
-        else:
-            msg += "👑🔥 لا يوجد متخاذلين."
+    # إضافة وقت التحديث
+    update_time = datetime.now().strftime("%H:%M:%S")
+    msg += f"\n🕒 آخر تحديث: {update_time}"
 
+    # إرسال الرسالة
     if reply_token:
         line_bot_api.reply_message(reply_token, TextSendMessage(text=msg))
     else:
@@ -306,9 +347,9 @@ def on_message(event):
             save_data(group_data)
             send_war_poll(group_id, event.reply_token)
         elif text == ".war r":
-            send_war_results(group_id, event.reply_token)
+            send_war_results(group_id, user_id, event.reply_token)
         elif text == ".war rl":
-            send_war_results(group_id, event.reply_token, include_laggards=True)
+            send_war_results(group_id, user_id, event.reply_token, include_laggards=True)
         elif text == ".war s":
             group_data[group_id]["war"]["active"] = False
             group_data[group_id]["war"]["participants"] = []
@@ -382,9 +423,13 @@ def on_postback(event):
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"✅ تم تسجيلك كمسلم للقلعة، {name}"))
                 
         elif data == "war_results":
-            send_war_results(group_id, event.reply_token)
+            send_war_results(group_id, user_id, event.reply_token)
             
         save_data(group_data)
+        
+        # بعد أي اختيار، نرسل تحديث النتائج للمجموعة (عدا طلب عرض النتائج فقط)
+        if data != "war_results":
+            send_war_results(group_id, user_id)
 
 # ==== تشغيل السيرفر ====
 app = Flask(__name__)
