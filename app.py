@@ -48,55 +48,145 @@ ROLES = [
 game_active = False
 
 def send_role_card(reply_token, name, profile_pic, role):
-    bg_url = "https://i.imgur.com/U5lzq0F.jpeg"  # خلفية البطاقة
+    bg_url = "https://i.imgur.com/U5lzq0F.jpeg"  # خلفية البطاقة (بدون مسافة زائدة)
 
     flex = FlexSendMessage(
-        alt_text="بطاقة المنصب",
+        alt_text="🎉 بطاقتك الرسمية في البلاط الملكي!",
         contents={
             "type": "bubble",
             "size": "kilo",
-            "hero": {
-                "type": "image",
-                "url": bg_url,
-                "size": "full",
-                "aspectRatio": "9:16",
-                "aspectMode": "cover"
-            },
             "body": {
                 "type": "box",
                 "layout": "vertical",
                 "contents": [
+                    # الخلفية المزخرفة بإطار ذهبي
                     {
                         "type": "image",
-                        "url": profile_pic,
-                        "size": "xxl",
+                        "url": bg_url,
+                        "size": "full",
+                        "aspectRatio": "9:16",
                         "aspectMode": "cover",
-                        "aspectRatio": "1:1",
-                        "cornerRadius": "150px",
-                        "align": "center"
+                        "position": "absolute",
+                        "offsetTop": "0px",
+                        "offsetBottom": "0px",
+                        "offsetStart": "0px",
+                        "offsetEnd": "0px",
+                        "flex": 1
                     },
+                    # إطار البطاقة الخارجي (مزخرف)
                     {
-                        "type": "text",
-                        "text": name,
-                        "weight": "bold",
-                        "size": "xl",
-                        "align": "center",
-                        "color": "#FFFFFF",
-                        "margin": "md"
+                        "type": "box",
+                        "layout": "vertical",
+                        "contents": [],
+                        "position": "absolute",
+                        "cornerRadius": "32px",
+                        "borderWidth": "6px",
+                        "borderColor": "#FFD700",
+                        "offsetTop": "8px",
+                        "offsetBottom": "8px",
+                        "offsetStart": "8px",
+                        "offsetEnd": "8px",
+                        "flex": 1,
+                        "paddingAll": "0px"
                     },
+                    # ظل داخلي للبطاقة
                     {
-                        "type": "text",
-                        "text": role,
-                        "weight": "bold",
-                        "size": "xl",
-                        "align": "center",
-                        "color": "#FFD700",
-                        "margin": "sm"
+                        "type": "box",
+                        "layout": "vertical",
+                        "contents": [],
+                        "position": "absolute",
+                        "cornerRadius": "28px",
+                        "backgroundColor": "#00000055",
+                        "offsetTop": "12px",
+                        "offsetBottom": "12px",
+                        "offsetStart": "12px",
+                        "offsetEnd": "12px",
+                        "flex": 1
+                    },
+                    # المحتوى الداخلي (الصورة + الاسم + المنصب)
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "contents": [
+                            # صورة العضو
+                            {
+                                "type": "image",
+                                "url": profile_pic,
+                                "size": "xl",
+                                "aspectMode": "cover",
+                                "aspectRatio": "1:1",
+                                "cornerRadius": "100px",
+                                "align": "center",
+                                "margin": "xxl",
+                                "offsetTop": "40px"
+                            },
+                            # اسم العضو
+                            {
+                                "type": "text",
+                                "text": name,
+                                "weight": "bold",
+                                "size": "lg",
+                                "align": "center",
+                                "color": "#FFFFFF",
+                                "margin": "md",
+                                "wrap": True,
+                                "style": "normal",
+                                "decoration": "none"
+                            },
+                            # خط فاصل
+                            {
+                                "type": "box",
+                                "layout": "horizontal",
+                                "contents": [
+                                    {
+                                        "type": "filler"
+                                    },
+                                    {
+                                        "type": "box",
+                                        "layout": "vertical",
+                                        "contents": [],
+                                        "width": "60%",
+                                        "height": "2px",
+                                        "backgroundColor": "#FFD700",
+                                        "cornerRadius": "1px"
+                                    },
+                                    {
+                                        "type": "filler"
+                                    }
+                                ],
+                                "margin": "lg"
+                            },
+                            # منصب العضو
+                            {
+                                "type": "text",
+                                "text": role,
+                                "weight": "bold",
+                                "size": "lg",
+                                "align": "center",
+                                "color": "#FFD700",
+                                "margin": "sm",
+                                "wrap": True,
+                                "style": "italic",
+                                "decoration": "underline"
+                            },
+                            # شعار ملكي أسفل البطاقة
+                            {
+                                "type": "text",
+                                "text": "👑 البلاط الملكي 🏰",
+                                "size": "xs",
+                                "align": "center",
+                                "color": "#FFFFFFCC",
+                                "margin": "xl"
+                            }
+                        ],
+                        "position": "relative",
+                        "paddingAll": "20px",
+                        "justifyContent": "center",
+                        "alignItems": "center"
                     }
                 ],
-                "backgroundColor": "#00000080",
-                "cornerRadius": "20px",
-                "paddingAll": "16px"
+                "paddingAll": "0px",
+                "backgroundColor": "#00000000"
             }
         }
     )
@@ -139,12 +229,11 @@ def handle_message(event):
         try:
             profile = line_bot_api.get_profile(uid)
             name  = profile.display_name
-            pic   = profile.picture_url or bg_url
+            pic   = profile.picture_url or "https://i.imgur.com/U5lzq0F.jpeg"
         except:
-            name, pic = "عضو مجهول", bg_url
+            name, pic = "عضو مجهول", "https://i.imgur.com/U5lzq0F.jpeg"
         role = random.choice(ROLES)
         send_role_card(event.reply_token, name, pic, role)
 
 if __name__ == "__main__":
     app.run(port=5000, host="0.0.0.0")
-    
