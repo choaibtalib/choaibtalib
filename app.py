@@ -8,14 +8,13 @@ import random
 
 app = Flask(__name__)
 
-# ضع توكناتك كما هي في متغيرات البيئة
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
 
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-# ====== قائمة المناصب (أكثر من 100) ======
+# ===== قائمة المناصب =====
 JOBS = [
     "👑 ملك المملكة","🕌 سلطان الصحراء","⚔️ قائد الحرس","🛡️ حارس القصر",
     "🎺 منشد البلاط","🥘 طباخ القصر","🐪 سائق الإبل","🧹 منظف الإسطبل",
@@ -44,6 +43,10 @@ JOBS = [
     "🏆 حامل الجوائز","🚀 حارس الفضاء","🌠 ملتقط النجوم","💤 حارس الأحلام"
 ]
 
+# حالة اللعبة وتوزيع المناصب
+game_active = False
+assigned = {}  # user_id -> job
+
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
@@ -56,23 +59,51 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
+    global game_active, assigned
     text = event.message.text.strip()
 
-    # أمر من الأدمن لتشغيل اللعبة
+    # تشغيل اللعبة
     if text.lower() == ".g":
+        game_active = True
+        assigned = {}
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text="🎮 تم تفعيل لعبة المناصب! اكتب: منصب")
         )
+        return
 
-    # أي عضو يكتب: منصب
-    elif text == "منصب":
+    # إيقاف اللعبة
+    if text.lower() == ".go":
+        game_active = False
+        assigned = {}
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="⛔ تم إيقاف اللعبة، تم مسح جميع القوائم.")
+        )
+        return
+
+    # طلب منصب
+    if text == "منصب":
+        if not game_active:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="⚠️ اللعبة غير مفعّلة حاليًا.")
+            )
+            return
+        user_id = event.source.user_id
+        if user_id in assigned:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="🤣 لقد تم إعطاؤك منصبك مسبقًا!")
+            )
+            return
         try:
-            profile = line_bot_api.get_profile(event.source.user_id)
+            profile = line_bot_api.get_profile(user_id)
             name = profile.display_name
         except:
             name = "العضو"
         job = random.choice(JOBS)
+        assigned[user_id] = job
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text=f"🎲 {name} منصبه العشوائي: {job}")
@@ -80,4 +111,3 @@ def handle_message(event):
 
 if __name__ == "__main__":
     app.run(port=5000)
-        
