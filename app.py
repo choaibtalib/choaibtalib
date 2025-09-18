@@ -46,12 +46,13 @@ ROLES = [
 ]
 
 game_active = False
+user_roles = {}  # تخزين مناصب المستخدمين
 
 def send_role_card(reply_token, name, profile_pic, role):
-    bg_url = "https://i.imgur.com/U5lzq0F.jpeg"  # خلفية البطاقة (بدون مسافة زائدة)
+    bg_url = "https://i.imgur.com/U5lzq0F.jpeg"
 
     flex = FlexSendMessage(
-        alt_text="🎉 بطاقتك الرسمية في البلاط الملكي!",
+        alt_text="🎉 بطاقتك الرسمية!",
         contents={
             "type": "bubble",
             "size": "kilo",
@@ -59,7 +60,6 @@ def send_role_card(reply_token, name, profile_pic, role):
                 "type": "box",
                 "layout": "vertical",
                 "contents": [
-                    # الخلفية المزخرفة بإطار ذهبي
                     {
                         "type": "image",
                         "url": bg_url,
@@ -73,7 +73,6 @@ def send_role_card(reply_token, name, profile_pic, role):
                         "offsetEnd": "0px",
                         "flex": 1
                     },
-                    # إطار البطاقة الخارجي (مزخرف)
                     {
                         "type": "box",
                         "layout": "vertical",
@@ -89,7 +88,6 @@ def send_role_card(reply_token, name, profile_pic, role):
                         "flex": 1,
                         "paddingAll": "0px"
                     },
-                    # ظل داخلي للبطاقة
                     {
                         "type": "box",
                         "layout": "vertical",
@@ -103,12 +101,10 @@ def send_role_card(reply_token, name, profile_pic, role):
                         "offsetEnd": "12px",
                         "flex": 1
                     },
-                    # المحتوى الداخلي (الصورة + الاسم + المنصب)
                     {
                         "type": "box",
                         "layout": "vertical",
                         "contents": [
-                            # صورة العضو
                             {
                                 "type": "image",
                                 "url": profile_pic,
@@ -120,7 +116,6 @@ def send_role_card(reply_token, name, profile_pic, role):
                                 "margin": "xxl",
                                 "offsetTop": "40px"
                             },
-                            # اسم العضو
                             {
                                 "type": "text",
                                 "text": name,
@@ -129,18 +124,13 @@ def send_role_card(reply_token, name, profile_pic, role):
                                 "align": "center",
                                 "color": "#FFFFFF",
                                 "margin": "md",
-                                "wrap": True,
-                                "style": "normal",
-                                "decoration": "none"
+                                "wrap": True
                             },
-                            # خط فاصل
                             {
                                 "type": "box",
                                 "layout": "horizontal",
                                 "contents": [
-                                    {
-                                        "type": "filler"
-                                    },
+                                    {"type": "filler"},
                                     {
                                         "type": "box",
                                         "layout": "vertical",
@@ -150,13 +140,10 @@ def send_role_card(reply_token, name, profile_pic, role):
                                         "backgroundColor": "#FFD700",
                                         "cornerRadius": "1px"
                                     },
-                                    {
-                                        "type": "filler"
-                                    }
+                                    {"type": "filler"}
                                 ],
                                 "margin": "lg"
                             },
-                            # منصب العضو
                             {
                                 "type": "text",
                                 "text": role,
@@ -169,10 +156,145 @@ def send_role_card(reply_token, name, profile_pic, role):
                                 "style": "italic",
                                 "decoration": "underline"
                             },
-                            # شعار ملكي أسفل البطاقة
                             {
                                 "type": "text",
-                                "text": "👑 البلاط الملكي 🏰",
+                                "text": "👑560👑",
+                                "size": "xs",
+                                "align": "center",
+                                "color": "#FFFFFFCC",
+                                "margin": "xl"
+                            }
+                        ],
+                        "position": "relative",
+                        "paddingAll": "20px",
+                        "justifyContent": "center",
+                        "alignItems": "center"
+                    }
+                ],
+                "paddingAll": "0px",
+                "backgroundColor": "#00000000"
+            }
+        }
+    )
+    line_bot_api.reply_message(reply_token, flex)
+
+def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
+    bg_url = "https://i.imgur.com/U5lzq0F.jpeg"
+
+    flex = FlexSendMessage(
+        alt_text="مرحبًا!",
+        contents={
+            "type": "bubble",
+            "size": "kilo",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {
+                        "type": "image",
+                        "url": bg_url,
+                        "size": "full",
+                        "aspectRatio": "9:16",
+                        "aspectMode": "cover",
+                        "position": "absolute",
+                        "offsetTop": "0px",
+                        "offsetBottom": "0px",
+                        "offsetStart": "0px",
+                        "offsetEnd": "0px",
+                        "flex": 1
+                    },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "contents": [],
+                        "position": "absolute",
+                        "cornerRadius": "32px",
+                        "borderWidth": "6px",
+                        "borderColor": "#FF69B4",
+                        "offsetTop": "8px",
+                        "offsetBottom": "8px",
+                        "offsetStart": "8px",
+                        "offsetEnd": "8px",
+                        "flex": 1,
+                        "paddingAll": "0px"
+                    },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "contents": [],
+                        "position": "absolute",
+                        "cornerRadius": "28px",
+                        "backgroundColor": "#00000055",
+                        "offsetTop": "12px",
+                        "offsetBottom": "12px",
+                        "offsetStart": "12px",
+                        "offsetEnd": "12px",
+                        "flex": 1
+                    },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "contents": [
+                            {
+                                "type": "image",
+                                "url": mentioner_pic,
+                                "size": "xl",
+                                "aspectMode": "cover",
+                                "aspectRatio": "1:1",
+                                "cornerRadius": "100px",
+                                "align": "center",
+                                "margin": "xxl",
+                                "offsetTop": "40px"
+                            },
+                            {
+                                "type": "text",
+                                "text": mentioner_name,
+                                "weight": "bold",
+                                "size": "lg",
+                                "align": "center",
+                                "color": "#FFFFFF",
+                                "margin": "md",
+                                "wrap": True
+                            },
+                            {
+                                "type": "box",
+                                "layout": "horizontal",
+                                "contents": [
+                                    {"type": "filler"},
+                                    {
+                                        "type": "box",
+                                        "layout": "vertical",
+                                        "contents": [],
+                                        "width": "50%",
+                                        "height": "3px",
+                                        "backgroundColor": "#FF69B4",
+                                        "cornerRadius": "2px"
+                                    },
+                                    {"type": "filler"}
+                                ],
+                                "margin": "lg"
+                            },
+                            {
+                                "type": "text",
+                                "text": "مشغول يا حلو 💌",
+                                "weight": "bold",
+                                "size": "md",
+                                "align": "center",
+                                "color": "#FF69B4",
+                                "margin": "none",
+                                "wrap": True
+                            },
+                            {
+                                "type": "text",
+                                "text": "اترك له رسالة!",
+                                "size": "sm",
+                                "align": "center",
+                                "color": "#FFFFFFCC",
+                                "margin": "xxs"
+                            },
+                            {
+                                "type": "text",
+                                "text": "👑560👑",
                                 "size": "xs",
                                 "align": "center",
                                 "color": "#FFFFFFCC",
@@ -208,6 +330,17 @@ def handle_message(event):
     text = event.message.text.strip()
     uid  = event.source.user_id
 
+    # التحقق إذا كان النص يحتوي على منشن للادمن
+    if ADMIN_USER_ID and f"@{ADMIN_USER_ID}" in text:
+        try:
+            profile = line_bot_api.get_profile(uid)
+            mentioner_name = profile.display_name
+            mentioner_pic = profile.picture_url or "https://i.imgur.com/U5lzq0F.jpeg"
+        except:
+            mentioner_name, mentioner_pic = "عضو مجهول", "https://i.imgur.com/U5lzq0F.jpeg"
+        send_admin_mention_card(event.reply_token, mentioner_name, mentioner_pic)
+        return
+
     if text.lower() == ".g" and uid == ADMIN_USER_ID:
         game_active = True
         line_bot_api.reply_message(event.reply_token,
@@ -216,24 +349,35 @@ def handle_message(event):
 
     if text.lower() == ".stop" and uid == ADMIN_USER_ID:
         game_active = False
+        user_roles.clear()  # تجديد المناصب عند الإيقاف
         line_bot_api.reply_message(event.reply_token,
-            TextSendMessage(text="⏹️ تم إيقاف لعبة المناصب."))
+            TextSendMessage(text="⏹️ تم إيقاف لعبة المناصب وتجديدها!"))
         return
 
     if text.lower() == ".u" and uid == ADMIN_USER_ID:
+        # محاولة مسح الرسالة السابقة — غير مدعوم رسميًا
+        # نرسل رسالة فارغة أو رسالة تنظيف رمزية
         line_bot_api.reply_message(event.reply_token,
-            TextSendMessage(text="🗑️ أمر الحذف (يمكن تعديله)."))
+            TextSendMessage(text="🧹 تم تنظيف الدردشة!"))
         return
 
     if game_active and text == "منصب":
-        try:
-            profile = line_bot_api.get_profile(uid)
-            name  = profile.display_name
-            pic   = profile.picture_url or "https://i.imgur.com/U5lzq0F.jpeg"
-        except:
-            name, pic = "عضو مجهول", "https://i.imgur.com/U5lzq0F.jpeg"
-        role = random.choice(ROLES)
-        send_role_card(event.reply_token, name, pic, role)
+        if uid in user_roles:
+            previous_role = user_roles[uid]
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text=f"لك تم إعطاؤك منصبك: {previous_role}"))
+            return
+        else:
+            try:
+                profile = line_bot_api.get_profile(uid)
+                name = profile.display_name
+                pic  = profile.picture_url or "https://i.imgur.com/U5lzq0F.jpeg"
+            except:
+                name, pic = "عضو مجهول", "https://i.imgur.com/U5lzq0F.jpeg"
+            role = random.choice(ROLES)
+            user_roles[uid] = role
+            send_role_card(event.reply_token, name, pic, role)
+            return
 
 if __name__ == "__main__":
     app.run(port=5000, host="0.0.0.0")
