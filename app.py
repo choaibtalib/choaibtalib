@@ -1,52 +1,67 @@
-# -*- coding: utf-8 -*-
+import os, json, logging, random
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
-    MessageEvent, TextMessage, TextSendMessage,
-    TemplateSendMessage, ButtonsTemplate, URITemplateAction
+    MessageEvent, TextMessage,
+    TextSendMessage, FlexSendMessage
 )
-import os
-import random
 
-app = Flask(__name__)
+# --- إعدادات التسجيل ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # --- متغيرات البيئة ---
-LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("CHANNEL_ACCESS_TOKEN")
-LINE_CHANNEL_SECRET = os.environ.get("CHANNEL_SECRET")
+CHANNEL_ACCESS_TOKEN = os.getenv("CHANNEL_ACCESS_TOKEN")
+CHANNEL_SECRET = os.getenv("CHANNEL_SECRET")
+ADMIN_USER_ID = os.getenv("USER_ID")
 
-line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
-handler = WebhookHandler(LINE_CHANNEL_SECRET)
+if not CHANNEL_ACCESS_TOKEN or not CHANNEL_SECRET:
+    raise Exception("يرجى ضبط متغيرات البيئة CHANNEL_ACCESS_TOKEN و CHANNEL_SECRET")
 
-# ===== قائمة المناصب =====
+line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
+handler = WebhookHandler(CHANNEL_SECRET)
+
+# --- بيانات اللعبة ---
+game_active = False
+assigned = {}
+
+# 100 منصب عشوائي (خليط جاد + مضحك + منطقية)
 JOBS = [
-    "ملك المملكة", "سلطان الصحراء", "قائد الحرس", "حارس القصر",
-    "منشد البلاط", "طباخ القصر", "سائق الإبل", "منظف الإسطبل",
-    "مهرّج البلاط", "مغنّي الساحة", "كاتب الأسرار", "أمين الخزانة",
-    "رامٍ محترف", "مروّض التنانين", "حدّاد القلعة", "منظف الثلج",
-    "حارس البوابة", "طبيب القصر", "ساحر المملكة", "جاسوس الملك",
-    "مصاص دماء سري", "قرصان متمرّد", "ساقي النبيذ", "ملاح البحيرة",
-    "فارس الصيد", "ممثل الحكايات", "شرير القصة", "جني المصباح",
-    "صائد الجرذان", "منظم الاحتفالات", "قاطع الأشجار", "صياد السمك",
-    "صقار الصقور", "صانع العسل", "خياط القصر", "صانع الصابون",
-    "مخترع غريب", "صانع الدمى", "قارئ الطالع", "جندي الحدود",
-    "طباخ الملكة", "مطفئ الحرائق", "مسؤول الأمن", "لاعب النبال",
-    "لاعب محترف", "عازف القيثارة", "راصد النجوم", "حارس الأحلام",
-    "مربي الدجاج", "موزع العصير", "مشوي الدواجن", "خباز القصر",
-    "صانع المعجنات", "صانع الحلوى", "صانع الشاي", "موزع الحليب",
-    "قصاب القصر", "خبير العصائر", "رسام اللوحات", "مزخرف الجدران",
-    "راوي القصص", "أمين المكتبة", "مربي الحمام", "مربي النحل",
-    "مروض الخيول", "مروض الفيلة", "مروض القردة", "حارس التنانين",
-    "جامع الدمى", "بطل البولينج", "حامل الجوائز", "حارس الفضاء"
+    "👑 سلطان العصور", "🚜 فلاح المملكة", "🌾 مزارع القمح", "🍳 طباخ القصر",
+    "🐒 مروض القرود", "🧞‍♂️ جالب الحظ", "🎭 ممثل القصر", "🕵️ محقق سري",
+    "🛡️ حارس القلعة", "🎨 رسام الأساطير", "🧩 صانع الألغاز", "🧙‍♂️ ساحر الليل",
+    "🌋 مراقب البراكين", "🏰 مهندس القلاع", "⚔️ قائد الجيوش", "🚀 رائد الفضاء",
+    "🔮 قارئ النجوم", "🐔 مربي الدجاج", "🏹 صياد الغزلان", "🍯 صانع العسل",
+    "💎 تاجر الجواهر", "🧵 خياط القصر", "🎼 عازف الناي", "🚂 سائق القطار",
+    "🧭 مكتشف الأراضي", "🐪 دليل القوافل", "🛶 قبطان النهر", "🌌 مستكشف المجرات",
+    "📚 حكيم الزمان", "🥷 نينجا الظلال", "⚡ مهندس الطاقة", "💡 مخترع العجائب",
+    "🕯️ حافظ الأسرار", "🥁 ضارب الطبول", "🍇 مزارع الكروم", "🏄 راكب الأمواج",
+    "🐕 مروض الذئاب", "🦂 صائد العقارب", "🏆 بطل الحلبة", "🍵 صانع الشاي",
+    "🎨 خطاط الملك", "🌹 مزارع الورود", "🌙 حارس الليل", "🌊 غواص الأعماق",
+    "🦅 صائد النسور", "🛠️ حداد المملكة", "🎤 منشد القوافل", "🚨 منقذ الأرواح",
+    "💼 مستشار الملك", "🥗 طاهٍ نباتي", "🐼 راعي الباندا", "🚴 راكب الرياح",
+    "🏇 فارس الميدان", "📜 مؤرخ البلاط", "🔑 حارس الخزائن", "🥶 حارس الجليد",
+    "🔥 جامع الحطب", "🍿 بائع الفشار", "🎣 صياد الأسماك", "🕊️ مربي الحمام",
+    "🌴 حارس الواحة", "🎯 رامٍ بارع", "🧗 متسلق الجبال", "⚓ ربان البحار",
+    "🥋 مدرب القتال", "🎬 مخرج الأساطير", "💃 راقص السيف", "🧛 صائد مصاصي الدماء",
+    "🧚‍♂️ جامع الأساطير", "🦊 حارس الغابة", "🥨 خباز القرية", "🍀 حارس الحظ",
+    "🥸 محقق الألغاز", "🪂 قافز السماء", "🎩 ساحر القبعة", "🐳 راعي الحيتان",
+    "🛶 مجدف النهر", "🦁 مروض الأسود", "🥕 مزارع الجزر", "🐝 حارس النحل",
+    "🏜️ حارس الصحراء", "🕰️ مسافر الزمن", "🎢 مهندس الألعاب", "🛻 سائق العربة",
+    "🦉 مراقب البوم", "🥁 قارع الطبول", "🍉 بائع البطيخ", "🎿 متزلج الثلوج",
+    "🧴 صانع العطور", "🎷 عازف الساكس", "🐢 مربي السلاحف", "🍂 جامع الأعشاب",
+    "🏖️ منقذ الشاطئ", "⚙️ مخترع الآلات", "🎇 مطلق الألعاب النارية",
+    "🌻 بستاني الملك", "🍎 جالب التفاح", "🧊 صانع الجليد", "🪄 خبير الحيل",
+    "🦜 مربي الببغاوات", "🎺 عازف البوق", "🪕 عازف البانجو", "🚴‍♂️ سائق الدراجة"
 ]
 
-# حالة اللعبة وتوزيع المناصب
-game_active = False
-assigned = {}  # user_id -> {"name": ..., "job": ..., "pic": ...}
+# --- تطبيق Flask ---
+app = Flask(__name__)
 
 @app.route("/callback", methods=['POST'])
 def callback():
-    signature = request.headers['X-Line-Signature']
+    signature = request.headers.get('X-Line-Signature')
     body = request.get_data(as_text=True)
     try:
         handler.handle(body, signature)
@@ -58,25 +73,37 @@ def callback():
 def handle_message(event):
     global game_active, assigned
     text = event.message.text.strip()
+    user_id = event.source.user_id
 
-    # تشغيل اللعبة
+    # أوامر الأدمن فقط
     if text.lower() == ".g":
-        game_active = True
-        assigned = {}
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text="🎮 تم تفعيل لعبة المناصب! اكتب: منصب")
-        )
+        if user_id == ADMIN_USER_ID:
+            game_active = True
+            assigned.clear()
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="✅ تم تشغيل لعبة المناصب! اكتبوا: منصب")
+            )
+        else:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="⚠️ هذا الأمر مخصص للأدمن فقط.")
+            )
         return
 
-    # إيقاف اللعبة
     if text.lower() == ".go":
-        game_active = False
-        assigned = {}
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text="⛔ تم إيقاف اللعبة، تم مسح جميع القوائم.")
-        )
+        if user_id == ADMIN_USER_ID:
+            game_active = False
+            assigned.clear()
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="⛔ تم إيقاف اللعبة.")
+            )
+        else:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="⚠️ هذا الأمر مخصص للأدمن فقط.")
+            )
         return
 
     # طلب منصب
@@ -84,41 +111,73 @@ def handle_message(event):
         if not game_active:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text="⚠️ اللعبة غير مفعّلة حاليًا.")
+                TextSendMessage(text="🎮 اللعبة غير مفعلة حالياً.")
             )
             return
 
-        user_id = event.source.user_id
-
-        # إذا تم إعطاء العضو منصب سابقاً
         if user_id in assigned:
-            data = assigned[user_id]
-        else:
-            try:
-                profile = line_bot_api.get_profile(user_id)
-                name = profile.display_name
-                profile_pic = profile.picture_url or "https://via.placeholder.com/240"
-            except:
-                name = "العضو"
-                profile_pic = "https://via.placeholder.com/240"
-            job = random.choice(JOBS)
-            data = {"name": name, "job": job, "pic": profile_pic}
-            assigned[user_id] = data
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="😄 عطيتك منصب من قبل!")
+            )
+            return
 
-        # إنشاء بطاقة ButtonsTemplate
-        buttons_template = ButtonsTemplate(
-            thumbnail_image_url=data["pic"],
-            title=data["name"],
-            text=f"منصبه: {data['job']}",
-            actions=[URITemplateAction(label="عرض الصورة", uri=data["pic"])]
-        )
-        template_message = TemplateSendMessage(
-            alt_text="منصب العضو",
-            template=buttons_template
-        )
+        try:
+            profile = line_bot_api.get_profile(user_id)
+            name = profile.display_name
+            pic = profile.picture_url or "https://via.placeholder.com/300"
+        except:
+            name = "مشارك"
+            pic = "https://via.placeholder.com/300"
 
-        line_bot_api.reply_message(event.reply_token, template_message)
+        job = random.choice(JOBS)
+        assigned[user_id] = {"name": name, "job": job, "pic": pic}
+
+        flex_content = {
+          "type": "bubble",
+          "size": "mega",
+          "hero": {
+            "type": "image",
+            "url": pic,
+            "size": "full",
+            "aspectRatio": "1:1",
+            "aspectMode": "cover",
+            "backgroundColor": "#FFD700"
+          },
+          "body": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#fff0f5",
+            "contents": [
+              {
+                "type": "text",
+                "text": name,
+                "weight": "bold",
+                "size": "xl",
+                "align": "center",
+                "color": "#FF1493"
+              },
+              {
+                "type": "text",
+                "text": f"منصبه العشوائي: {job}",
+                "wrap": True,
+                "align": "center",
+                "color": "#8A2BE2",
+                "margin": "md"
+              }
+            ]
+          },
+          "styles": {
+            "body": { "backgroundColor": "#ffe4e1" },
+            "hero": { "backgroundColor": "#FFD700" }
+          }
+        }
+
+        message = FlexSendMessage(
+            alt_text="🎲 منصبك العشوائي!", contents=flex_content
+        )
+        line_bot_api.reply_message(event.reply_token, message)
 
 if __name__ == "__main__":
-    app.run(port=5000)
-    
+    app.run(port=8000)
+        
