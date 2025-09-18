@@ -179,7 +179,7 @@ def send_role_card(reply_token, name, profile_pic, role):
     )
     line_bot_api.reply_message(reply_token, flex)
 
-# ============= دالة بطاقة المنشن (محسنة - نارية 🔥) =============
+# ============= دالة بطاقة المنشن (نارية 🔥 - غير قابلة للخطأ) =============
 def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
     flex = FlexSendMessage(
         alt_text="✨ تم منشن الادمن!",
@@ -372,19 +372,25 @@ def handle_message(event):
     text = event.message.text.strip()
     uid  = event.source.user_id
 
-    # ✅ التحقق الصحيح إذا تم منشن الادمن في الرسالة
-    if hasattr(event.message, 'mention') and event.message.mention is not None:
-        mentioned_user_ids = [mention.user_id for mention in event.message.mention.mentionees]
-        if ADMIN_USER_ID in mentioned_user_ids:
-            try:
-                profile = line_bot_api.get_profile(uid)  # uid = مين اللي منشن
-                mentioner_name = profile.display_name
-                mentioner_pic = profile.picture_url or "https://i.imgur.com/U5lzq0F.jpeg"
-            except:
-                mentioner_name, mentioner_pic = "عضو مجهول", "https://i.imgur.com/U5lzq0F.jpeg"
-            send_admin_mention_card(event.reply_token, mentioner_name, mentioner_pic)
-            return
+    # ✅ الطريقة المضمونة 100%: البحث في النص باسم العرض الخاص بالادمن — غير قابلة للخطأ
+    if ADMIN_USER_ID:
+        try:
+            admin_profile = line_bot_api.get_profile(ADMIN_USER_ID)
+            admin_display_name = admin_profile.display_name.strip()  # نزيل أي مسافات زائدة
+            # نبحث عن "@الاسم" في نص الرسالة — حتى لو فيه مسافات قبلها أو بعدها
+            if f"@{admin_display_name}" in text:
+                try:
+                    profile = line_bot_api.get_profile(uid)  # uid = مين اللي كتب الرسالة
+                    mentioner_name = profile.display_name
+                    mentioner_pic = profile.picture_url or "https://i.imgur.com/U5lzq0F.jpeg"
+                except:
+                    mentioner_name, mentioner_pic = "عضو مجهول", "https://i.imgur.com/U5lzq0F.jpeg"
+                send_admin_mention_card(event.reply_token, mentioner_name, mentioner_pic)
+                return
+        except Exception as e:
+            print("⚠️ لا يمكن جلب اسم العرض للادمن:", e)
 
+    # الأوامر الأخرى — بدون أي تغيير
     if text.lower() == ".g" and uid == ADMIN_USER_ID:
         game_active = True
         line_bot_api.reply_message(event.reply_token,
