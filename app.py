@@ -11,7 +11,7 @@ app = Flask(__name__)
 CHANNEL_ACCESS_TOKEN = os.environ.get("CHANNEL_ACCESS_TOKEN")
 CHANNEL_SECRET       = os.environ.get("CHANNEL_SECRET")
 ADMIN_USER_ID        = os.environ.get("ADMIN_USER_ID")  # معرّف الأدمن
-USER_ID              = os.environ.get("USER_ID")        # (اختياري إذا أردت)
+USER_ID              = os.environ.get("USER_ID")        # (اختياري)
 
 if not CHANNEL_ACCESS_TOKEN or not CHANNEL_SECRET:
     raise RuntimeError("يجب ضبط CHANNEL_ACCESS_TOKEN و CHANNEL_SECRET في متغيرات البيئة")
@@ -52,18 +52,18 @@ ROLES = [
 game_active = False
 
 def send_role_card(reply_token, name, profile_pic, role):
-    """إرسال بطاقة المنصب بتصميم Flex Message"""
-    bg_url = "https://i.imgur.com/U5lzq0F.jpeg"  # الخلفية الجديدة
+    """إرسال بطاقة المنصب بتصميم Flex Message أصغر ومتناسق"""
+    bg_url = "https://i.imgur.com/U5lzq0F.jpeg"  # خلفية البطاقة
     flex = FlexSendMessage(
         alt_text="بطاقة المنصب",
         contents={
             "type": "bubble",
-            "size": "giga",
+            "size": "kilo",  # أصغر من giga
             "hero": {
                 "type": "image",
                 "url": bg_url,
                 "size": "full",
-                "aspectRatio": "9:16",
+                "aspectRatio": "4:5",
                 "aspectMode": "cover"
             },
             "body": {
@@ -73,7 +73,7 @@ def send_role_card(reply_token, name, profile_pic, role):
                     {
                         "type": "image",
                         "url": profile_pic,
-                        "size": "xxl",
+                        "size": "xl",
                         "aspectMode": "cover",
                         "aspectRatio": "1:1",
                         "cornerRadius": "150px",
@@ -86,16 +86,16 @@ def send_role_card(reply_token, name, profile_pic, role):
                         "type": "text",
                         "text": name,
                         "weight": "bold",
-                        "size": "xxl",
+                        "size": "lg",
                         "align": "center",
                         "color": "#FFFFFF",
-                        "margin": "lg"
+                        "margin": "md"
                     },
                     {
                         "type": "text",
                         "text": role,
                         "weight": "bold",
-                        "size": "xxl",
+                        "size": "lg",
                         "align": "center",
                         "color": "#FFD700",
                         "margin": "sm"
@@ -103,7 +103,7 @@ def send_role_card(reply_token, name, profile_pic, role):
                 ],
                 "backgroundColor": "#00000099",
                 "cornerRadius": "20px",
-                "paddingAll": "20px"
+                "paddingAll": "16px"
             }
         }
     )
