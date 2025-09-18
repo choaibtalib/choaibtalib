@@ -2,19 +2,23 @@
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from linebot.models import (
+    MessageEvent, TextMessage, TextSendMessage,
+    TemplateSendMessage, ButtonsTemplate, URITemplateAction
+)
 import os
 import random
 
 app = Flask(__name__)
 
+# --- متغيرات البيئة ---
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("CHANNEL_ACCESS_TOKEN")
 LINE_CHANNEL_SECRET = os.environ.get("CHANNEL_SECRET")
 
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-# ===== قائمة المناصب (مزيج من مضحك ومنطقي وجاد) =====
+# ===== قائمة المناصب =====
 JOBS = [
     "ملك المملكة", "سلطان الصحراء", "قائد الحرس", "حارس القصر",
     "منشد البلاط", "طباخ القصر", "سائق الإبل", "منظف الإسطبل",
@@ -36,8 +40,9 @@ JOBS = [
     "جامع الدمى", "بطل البولينج", "حامل الجوائز", "حارس الفضاء"
 ]
 
+# حالة اللعبة وتوزيع المناصب
 game_active = False
-assigned = {}  # user_id -> job
+assigned = {}  # user_id -> {"name": ..., "job": ..., "pic": ...}
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -82,25 +87,37 @@ def handle_message(event):
                 TextSendMessage(text="⚠️ اللعبة غير مفعّلة حاليًا.")
             )
             return
+
         user_id = event.source.user_id
+
+        # إذا تم إعطاء العضو منصب سابقاً
         if user_id in assigned:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text=f"{assigned[user_id]['name']}: منصبه")
-            )
-            return
-        try:
-            profile = line_bot_api.get_profile(user_id)
-            name = profile.display_name
-        except:
-            name = "العضو"
-        job = random.choice(JOBS)
-        assigned[user_id] = {"name": name, "job": job}
-        # الرسالة المعدلة
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=f"{name}: {job}")
+            data = assigned[user_id]
+        else:
+            try:
+                profile = line_bot_api.get_profile(user_id)
+                name = profile.display_name
+                profile_pic = profile.picture_url or "https://via.placeholder.com/240"
+            except:
+                name = "العضو"
+                profile_pic = "https://via.placeholder.com/240"
+            job = random.choice(JOBS)
+            data = {"name": name, "job": job, "pic": profile_pic}
+            assigned[user_id] = data
+
+        # إنشاء بطاقة ButtonsTemplate
+        buttons_template = ButtonsTemplate(
+            thumbnail_image_url=data["pic"],
+            title=data["name"],
+            text=f"منصبه: {data['job']}",
+            actions=[URITemplateAction(label="عرض الصورة", uri=data["pic"])]
         )
+        template_message = TemplateSendMessage(
+            alt_text="منصب العضو",
+            template=buttons_template
+        )
+
+        line_bot_api.reply_message(event.reply_token, template_message)
 
 if __name__ == "__main__":
     app.run(port=5000)
