@@ -14,13 +14,8 @@ app = Flask(__name__)
 # استخدم نفس أسماء المفاتيح الموجودة في لوحة Render
 CHANNEL_ACCESS_TOKEN = os.environ.get("CHANNEL_ACCESS")      # أو الاسم الدقيق لديك
 CHANNEL_SECRET       = os.environ.get("CHANNEL_SECRET")
-LINE_AUTH_TOKEN      = os.environ.get("LINE_AUTH_TOKEN")     # في حال تحتاجه لاحقًا
-ADMIN_ID             = os.environ.get("ADMIN_ID")
 ADMIN_USER_ID        = os.environ.get("ADMIN_USER_ID")
 GROUP_ID             = os.environ.get("GROUP_ID")
-MAIN_BOT_CHAN1       = os.environ.get("MAIN_BOT_CHAN1")
-MAIN_BOT_CHAN2       = os.environ.get("MAIN_BOT_CHAN2")
-USER_ID              = os.environ.get("USER_ID")
 
 # ملاحظة: عدّل اسم المتغيّر الأول (CHANNEL_ACCESS) حسب ما هو مكتوب بالضبط في Render
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
