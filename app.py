@@ -10,14 +10,11 @@ app = Flask(__name__)
 # ===== متغيرات البيئة =====
 CHANNEL_ACCESS_TOKEN = os.environ.get("CHANNEL_ACCESS_TOKEN")
 CHANNEL_SECRET       = os.environ.get("CHANNEL_SECRET")
-ADMIN_USER_ID        = os.environ.get("ADMIN_USER_ID")  # معرّف الأدمن
-USER_ID              = os.environ.get("USER_ID")        # (اختياري)
-
-if not CHANNEL_ACCESS_TOKEN or not CHANNEL_SECRET:
-    raise RuntimeError("يجب ضبط CHANNEL_ACCESS_TOKEN و CHANNEL_SECRET في متغيرات البيئة")
+ADMIN_USER_ID        = os.environ.get("ADMIN_USER_ID")
+USER_ID              = os.environ.get("USER_ID")
 
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
-handler = WebhookHandler(CHANNEL_SECRET)
+handler      = WebhookHandler(CHANNEL_SECRET)
 
 # ===== قائمة المناصب =====
 ROLES = [
@@ -48,22 +45,21 @@ ROLES = [
     "🥛 موزع الحليب", "🍹 محترف العصائر", "📖 قارئ الحكايات", "🎟️ منظم العروض"
 ]
 
-# ===== إعداد اللعبة =====
 game_active = False
 
 def send_role_card(reply_token, name, profile_pic, role):
-    """إرسال بطاقة المنصب بتصميم Flex Message أصغر ومتناسق"""
     bg_url = "https://i.imgur.com/U5lzq0F.jpeg"  # خلفية البطاقة
+
     flex = FlexSendMessage(
         alt_text="بطاقة المنصب",
         contents={
             "type": "bubble",
-            "size": "kilo",  # أصغر من giga
+            "size": "kilo",
             "hero": {
                 "type": "image",
                 "url": bg_url,
                 "size": "full",
-                "aspectRatio": "4:5",
+                "aspectRatio": "9:16",
                 "aspectMode": "cover"
             },
             "body": {
@@ -73,20 +69,17 @@ def send_role_card(reply_token, name, profile_pic, role):
                     {
                         "type": "image",
                         "url": profile_pic,
-                        "size": "xl",
+                        "size": "xxl",
                         "aspectMode": "cover",
                         "aspectRatio": "1:1",
                         "cornerRadius": "150px",
-                        "borderColor": "#FFD700",
-                        "borderWidth": "6px",
-                        "align": "center",
-                        "gravity": "center"
+                        "align": "center"
                     },
                     {
                         "type": "text",
                         "text": name,
                         "weight": "bold",
-                        "size": "lg",
+                        "size": "xl",
                         "align": "center",
                         "color": "#FFFFFF",
                         "margin": "md"
@@ -95,13 +88,13 @@ def send_role_card(reply_token, name, profile_pic, role):
                         "type": "text",
                         "text": role,
                         "weight": "bold",
-                        "size": "lg",
+                        "size": "xl",
                         "align": "center",
                         "color": "#FFD700",
                         "margin": "sm"
                     }
                 ],
-                "backgroundColor": "#00000099",
+                "backgroundColor": "#00000080",
                 "cornerRadius": "20px",
                 "paddingAll": "16px"
             }
@@ -125,7 +118,6 @@ def handle_message(event):
     text = event.message.text.strip()
     uid  = event.source.user_id
 
-    # === أوامر الأدمن ===
     if text.lower() == ".g" and uid == ADMIN_USER_ID:
         game_active = True
         line_bot_api.reply_message(event.reply_token,
@@ -140,21 +132,18 @@ def handle_message(event):
 
     if text.lower() == ".u" and uid == ADMIN_USER_ID:
         line_bot_api.reply_message(event.reply_token,
-            TextSendMessage(text="🗑️ أمر الحذف (خصصه لاحقًا)."))
+            TextSendMessage(text="🗑️ أمر الحذف (يمكن تعديله)."))
         return
 
-    # === لعبة المناصب للجميع ===
     if game_active and text == "منصب":
         try:
             profile = line_bot_api.get_profile(uid)
             name  = profile.display_name
-            pic   = profile.picture_url or "https://i.imgur.com/U5lzq0F.jpeg"
+            pic   = profile.picture_url or bg_url
         except:
-            name, pic = "عضو مجهول", "https://i.imgur.com/U5lzq0F.jpeg"
-
+            name, pic = "عضو مجهول", bg_url
         role = random.choice(ROLES)
         send_role_card(event.reply_token, name, pic, role)
-        return
 
 if __name__ == "__main__":
     app.run(port=5000, host="0.0.0.0")
