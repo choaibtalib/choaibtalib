@@ -179,7 +179,7 @@ def send_role_card(reply_token, name, profile_pic, role):
     )
     line_bot_api.reply_message(reply_token, flex)
 
-# ============= دالة بطاقة المنشن (فنية - تلألؤ - بريق - ألوان باهية) =============
+# ============= دالة بطاقة المنشن (متحركة - GIF الجديد) =============
 def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
     flex = FlexSendMessage(
         alt_text="✨ عاشور مشغول الحين!",
@@ -190,21 +190,20 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                 "type": "box",
                 "layout": "vertical",
                 "contents": [
-                    # الخلفية المضيئة مع تدرج ناعم
+                    # الخلفية المتحركة (GIF الجديد)
                     {
-                        "type": "box",
-                        "layout": "vertical",
-                        "contents": [],
-                        "background": {
-                            "type": "linearGradient",
-                            "angle": "135deg",
-                            "startColor": "#FF9A9E",
-                            "endColor": "#FAD0C4",
-                            "centerColor": "#FFD8B1"
-                        },
-                        "cornerRadius": "32px",
-                        "paddingAll": "0px",
-                        "flex": 1
+                        "type": "image",
+                        "url": "https://i.imgur.com/SAqlVNr.gif",  # ✅ GIF الجديد - حركته فنية
+                        "size": "full",
+                        "aspectMode": "cover",
+                        "position": "absolute",
+                        "offsetTop": "0px",
+                        "offsetBottom": "0px",
+                        "offsetStart": "0px",
+                        "offsetEnd": "0px",
+                        "flex": 1,
+                        "aspectRatio": "9:16",
+                        "opacity": "0.5"  # شفافية متوسطة لتوازن بين الجمال والوضوح
                     },
                     # إطار براق
                     {
@@ -220,22 +219,7 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                         "offsetStart": "4px",
                         "offsetEnd": "4px"
                     },
-                    # نجوم تلألؤ (خلفية)
-                    {
-                        "type": "image",
-                        "url": "https://i.imgur.com/3Q6JkQq.png",  # نجوم شفافة
-                        "size": "full",
-                        "aspectMode": "cover",
-                        "position": "absolute",
-                        "offsetTop": "0px",
-                        "offsetBottom": "0px",
-                        "offsetStart": "0px",
-                        "offsetEnd": "0px",
-                        "flex": 1,
-                        "aspectRatio": "9:16",
-                        "opacity": "0.3"
-                    },
-                    # المحتوى الرئيسي
+                    # المحتوى الرئيسي (يظهر فوق GIF)
                     {
                         "type": "box",
                         "layout": "vertical",
@@ -258,9 +242,10 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                                 "weight": "bold",
                                 "size": "lg",
                                 "align": "center",
-                                "color": "#333333",
+                                "color": "#FFFFFF",  # أبيض ليعمل تباين مع الخلفية
                                 "margin": "md",
-                                "wrap": True
+                                "wrap": True,
+                                "style": "normal"
                             },
                             # خط فاصل ملون
                             {
@@ -293,7 +278,7 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                                 "weight": "bold",
                                 "size": "md",
                                 "align": "center",
-                                "color": "#D63031",
+                                "color": "#FFFFFF",  # أبيض
                                 "margin": "sm",
                                 "wrap": True
                             },
@@ -303,7 +288,7 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                                 "text": "يمكنك ترك رسالة له بالخاص ✨",
                                 "size": "sm",
                                 "align": "center",
-                                "color": "#555555",
+                                "color": "#FFFFE0",  # أصفر فاتح
                                 "margin": "none",
                                 "wrap": True
                             },
@@ -327,18 +312,19 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                                 "text": "👑560👑",
                                 "size": "xs",
                                 "align": "center",
-                                "color": "#888888",
+                                "color": "#FFFFFFDD",  # أبيض شبه شفاف
                                 "margin": "xl"
                             }
                         ],
                         "position": "relative",
                         "paddingAll": "24px",
                         "justifyContent": "center",
-                        "alignItems": "center"
+                        "alignItems": "center",
+                        "backgroundColor": "#00000000"  # شفاف
                     }
                 ],
                 "paddingAll": "0px",
-                "backgroundColor": "#FFFFFF00"
+                "backgroundColor": "#00000000"
             }
         }
     )
