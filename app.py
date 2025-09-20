@@ -179,7 +179,7 @@ def send_role_card(reply_token, name, profile_pic, role):
     )
     line_bot_api.reply_message(reply_token, flex)
 
-# ============= دالة بطاقة المنشن (نارية 🔥 - غير قابلة للخطأ) =============
+# ============= دالة بطاقة المنشن (نارية 🔥 - مصححة وخالية من الأخطاء) =============
 def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
     flex = FlexSendMessage(
         alt_text="✨ تم منشن الادمن!",
@@ -255,7 +255,7 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                                 "offsetTop": "30px",
                                 "style": "solid"
                             },
-                            # دائرة توهج خلف الصورة
+                            # دائرة توهج خلف الصورة — ✅ تم التصحيح هنا (بدون calc)
                             {
                                 "type": "box",
                                 "layout": "vertical",
@@ -267,8 +267,8 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                                 "borderColor": "#FFFFFF44",
                                 "position": "absolute",
                                 "offsetTop": "80px",
-                                "align": "center",
-                                "offsetStart": "calc(50% - 60px)"
+                                "offsetStart": "50%",
+                                "marginStart": "-60px"
                             },
                             # اسم العضو — متوهج
                             {
