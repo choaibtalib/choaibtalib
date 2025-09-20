@@ -179,10 +179,10 @@ def send_role_card(reply_token, name, profile_pic, role):
     )
     line_bot_api.reply_message(reply_token, flex)
 
-# ============= دالة بطاقة المنشن (نارية 🔥 - مصححة وخالية من الأخطاء) =============
+# ============= دالة بطاقة المنشن (فنية - تلألؤ - بريق - ألوان باهية) =============
 def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
     flex = FlexSendMessage(
-        alt_text="✨ تم منشن الادمن!",
+        alt_text="✨ عاشور مشغول الحين!",
         contents={
             "type": "bubble",
             "size": "kilo",
@@ -190,59 +190,57 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                 "type": "box",
                 "layout": "vertical",
                 "contents": [
-                    # الخلفية المتدرجة الزاهية
+                    # الخلفية المضيئة مع تدرج ناعم
                     {
                         "type": "box",
                         "layout": "vertical",
                         "contents": [],
-                        "position": "absolute",
                         "background": {
                             "type": "linearGradient",
-                            "angle": "45deg",
-                            "startColor": "#FF3366",
-                            "endColor": "#3366FF",
-                            "centerColor": "#FFCC33"
+                            "angle": "135deg",
+                            "startColor": "#FF9A9E",
+                            "endColor": "#FAD0C4",
+                            "centerColor": "#FFD8B1"
                         },
                         "cornerRadius": "32px",
-                        "offsetTop": "0px",
-                        "offsetBottom": "0px",
-                        "offsetStart": "0px",
-                        "offsetEnd": "0px",
+                        "paddingAll": "0px",
                         "flex": 1
                     },
-                    # الإطار النيون المتوهج (طبقتين)
+                    # إطار براق
                     {
                         "type": "box",
                         "layout": "vertical",
                         "contents": [],
-                        "position": "absolute",
-                        "cornerRadius": "32px",
                         "borderWidth": "4px",
                         "borderColor": "#FFFFFF",
+                        "cornerRadius": "32px",
+                        "position": "absolute",
                         "offsetTop": "4px",
                         "offsetBottom": "4px",
                         "offsetStart": "4px",
                         "offsetEnd": "4px"
                     },
+                    # نجوم تلألؤ (خلفية)
                     {
-                        "type": "box",
-                        "layout": "vertical",
-                        "contents": [],
+                        "type": "image",
+                        "url": "https://i.imgur.com/3Q6JkQq.png",  # نجوم شفافة
+                        "size": "full",
+                        "aspectMode": "cover",
                         "position": "absolute",
-                        "cornerRadius": "30px",
-                        "borderWidth": "2px",
-                        "borderColor": "#FF00FF",
-                        "offsetTop": "6px",
-                        "offsetBottom": "6px",
-                        "offsetStart": "6px",
-                        "offsetEnd": "6px"
+                        "offsetTop": "0px",
+                        "offsetBottom": "0px",
+                        "offsetStart": "0px",
+                        "offsetEnd": "0px",
+                        "flex": 1,
+                        "aspectRatio": "9:16",
+                        "opacity": "0.3"
                     },
-                    # المحتوى الداخلي
+                    # المحتوى الرئيسي
                     {
                         "type": "box",
                         "layout": "vertical",
                         "contents": [
-                            # صورة العضو بإطار مضيء
+                            # صورة العضو
                             {
                                 "type": "image",
                                 "url": mentioner_pic,
@@ -251,38 +249,18 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                                 "aspectRatio": "1:1",
                                 "cornerRadius": "100px",
                                 "align": "center",
-                                "margin": "xxl",
-                                "offsetTop": "30px",
-                                "style": "solid"
+                                "margin": "xxl"
                             },
-                            # دائرة توهج خلف الصورة — ✅ تم التصحيح هنا (بدون calc)
-                            {
-                                "type": "box",
-                                "layout": "vertical",
-                                "contents": [],
-                                "width": "120px",
-                                "height": "120px",
-                                "cornerRadius": "100px",
-                                "borderWidth": "4px",
-                                "borderColor": "#FFFFFF44",
-                                "position": "absolute",
-                                "offsetTop": "80px",
-                                "offsetStart": "50%",
-                                "marginStart": "-60px"
-                            },
-                            # اسم العضو — متوهج
+                            # اسم العضو
                             {
                                 "type": "text",
                                 "text": mentioner_name,
                                 "weight": "bold",
                                 "size": "lg",
                                 "align": "center",
-                                "color": "#FFFFFF",
-                                "margin": "lg",
-                                "wrap": True,
-                                "style": "normal",
-                                "decoration": "none",
-                                "offsetTop": "10px"
+                                "color": "#333333",
+                                "margin": "md",
+                                "wrap": True
                             },
                             # خط فاصل ملون
                             {
@@ -294,13 +272,13 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                                         "type": "box",
                                         "layout": "vertical",
                                         "contents": [],
-                                        "width": "50%",
-                                        "height": "4px",
+                                        "width": "40%",
+                                        "height": "3px",
                                         "background": {
                                             "type": "linearGradient",
                                             "angle": "90deg",
-                                            "startColor": "#FF00CC",
-                                            "endColor": "#33FFFF"
+                                            "startColor": "#FF6B6B",
+                                            "endColor": "#4ECDC4"
                                         },
                                         "cornerRadius": "2px"
                                     },
@@ -308,47 +286,59 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                                 ],
                                 "margin": "lg"
                             },
-                            # رسالة "مشغول يا حلو"
+                            # رسالة رئيسية
                             {
                                 "type": "text",
-                                "text": "مشغول يا حلو 💌",
+                                "text": "يا حلو عاشور مشغول الحين 💌",
                                 "weight": "bold",
-                                "size": "xl",
+                                "size": "md",
                                 "align": "center",
-                                "color": "#FFFFFF",
-                                "margin": "md",
-                                "wrap": True,
-                                "style": "normal",
-                                "decoration": "none",
-                                "offsetTop": "5px"
+                                "color": "#D63031",
+                                "margin": "sm",
+                                "wrap": True
                             },
                             # رسالة ثانوية
                             {
                                 "type": "text",
-                                "text": "✨ اترك له رسالة ويرد عليك قريب ✨",
+                                "text": "يمكنك ترك رسالة له بالخاص ✨",
                                 "size": "sm",
                                 "align": "center",
-                                "color": "#FFFF99",
+                                "color": "#555555",
                                 "margin": "none",
                                 "wrap": True
                             },
-                            # الشعار
+                            # رموز تعبيرية للتزيين
+                            {
+                                "type": "box",
+                                "layout": "horizontal",
+                                "contents": [
+                                    {"type": "text", "text": "🌟", "size": "sm", "gravity": "center"},
+                                    {"type": "text", "text": "💖", "size": "sm", "gravity": "center"},
+                                    {"type": "text", "text": "🎀", "size": "sm", "gravity": "center"},
+                                    {"type": "text", "text": "✨", "size": "sm", "gravity": "center"},
+                                    {"type": "text", "text": "💫", "size": "sm", "gravity": "center"}
+                                ],
+                                "justifyContent": "center",
+                                "margin": "lg"
+                            },
+                            # شعار
                             {
                                 "type": "text",
                                 "text": "👑560👑",
                                 "size": "xs",
                                 "align": "center",
-                                "color": "#FFFFFFDD",
-                                "margin": "xxl"
+                                "color": "#888888",
+                                "margin": "xl"
                             }
                         ],
                         "position": "relative",
-                        "paddingAll": "20px",
+                        "paddingAll": "24px",
                         "justifyContent": "center",
                         "alignItems": "center"
                     }
                 ],
-                "paddingAll": "0px"
+                "paddingAll": "0px",
+                "backgroundColor": "#FFFFFF00"
             }
         }
     )
@@ -372,43 +362,18 @@ def handle_message(event):
     text = event.message.text.strip()
     uid  = event.source.user_id
 
-    # ✅ الحل الخارق: قائمة أسماء ثابتة — تضمن ظهور البطاقة دائمًا
-    ADMIN_ALIASES = [
-        "@ـــ ⁵⁶⁰",
-        "عاشور",
-        "بو جواد",
-        "560",
-        "@560",
-        "عــاشــور",
-        "بو_جواد",
-        "ع",
-        "جواد",
-        "بو",
-        "⁵⁶⁰",
-        "5 6 0",
-        "@ 560",
-        "@ عاشور",
-        "@ بو جواد",
-        "بو جواد 560",
-        "عشور",
-        "الجواد",
-        "ملك 560"
-    ]
+    # ✅ يرد فقط على 3 عبارات بالضبط — لا أكثر ولا أقل
+    EXACT_TRIGGERS = {"عاشور", "بو جواد", "@ـــ ⁵⁶⁰"}
 
-    # تنظيف النص: إزالة المسافات + lowercase
-    text_clean = ''.join(text.split()).lower()
-
-    for alias in ADMIN_ALIASES:
-        alias_clean = ''.join(alias.split()).lower()
-        if alias_clean in text_clean:
-            try:
-                profile = line_bot_api.get_profile(uid)  # uid = مين اللي كتب
-                mentioner_name = profile.display_name
-                mentioner_pic = profile.picture_url or "https://i.imgur.com/U5lzq0F.jpeg"
-            except:
-                mentioner_name, mentioner_pic = "عضو مجهول", "https://i.imgur.com/U5lzq0F.jpeg"
-            send_admin_mention_card(event.reply_token, mentioner_name, mentioner_pic)
-            return
+    if text in EXACT_TRIGGERS:
+        try:
+            profile = line_bot_api.get_profile(uid)  # uid = مين اللي كتب
+            mentioner_name = profile.display_name
+            mentioner_pic = profile.picture_url or "https://i.imgur.com/U5lzq0F.jpeg"
+        except:
+            mentioner_name, mentioner_pic = "عضو مجهول", "https://i.imgur.com/U5lzq0F.jpeg"
+        send_admin_mention_card(event.reply_token, mentioner_name, mentioner_pic)
+        return
 
     # الأوامر الأخرى — بدون أي تغيير
     if text.lower() == ".g" and uid == ADMIN_USER_ID:
