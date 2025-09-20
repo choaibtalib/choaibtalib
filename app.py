@@ -372,28 +372,43 @@ def handle_message(event):
     text = event.message.text.strip()
     uid  = event.source.user_id
 
-    # ✅ الحل الخارق النهائي: أي رسالة فيها @ — ننظف ونقارن — غير قابل للخطأ أبداً
-    if "@" in text and ADMIN_USER_ID:
-        try:
-            admin_profile = line_bot_api.get_profile(ADMIN_USER_ID)
-            admin_display_name = admin_profile.display_name.strip()
+    # ✅ الحل الخارق: قائمة أسماء ثابتة — تضمن ظهور البطاقة دائمًا
+    ADMIN_ALIASES = [
+        "@ـــ ⁵⁶⁰",
+        "عاشور",
+        "بو جواد",
+        "560",
+        "@560",
+        "عــاشــور",
+        "بو_جواد",
+        "ع",
+        "جواد",
+        "بو",
+        "⁵⁶⁰",
+        "5 6 0",
+        "@ 560",
+        "@ عاشور",
+        "@ بو جواد",
+        "بو جواد 560",
+        "عشور",
+        "الجواد",
+        "ملك 560"
+    ]
 
-            # تنظيف: إزالة المسافات + تحويل لحروف صغيرة
-            clean_admin_name = ''.join(admin_display_name.split()).lower()
-            clean_text = ''.join(text.split()).lower()
+    # تنظيف النص: إزالة المسافات + lowercase
+    text_clean = ''.join(text.split()).lower()
 
-            # إذا وجدنا "@ + اسم الادمن" في النص — نفذ!
-            if f"@{clean_admin_name}" in clean_text:
-                try:
-                    profile = line_bot_api.get_profile(uid)
-                    mentioner_name = profile.display_name
-                    mentioner_pic = profile.picture_url or "https://i.imgur.com/U5lzq0F.jpeg"
-                except:
-                    mentioner_name, mentioner_pic = "عضو مجهول", "https://i.imgur.com/U5lzq0F.jpeg"
-                send_admin_mention_card(event.reply_token, mentioner_name, mentioner_pic)
-                return
-        except Exception as e:
-            print("⚠️ لا يمكن جلب اسم العرض للادمن:", e)
+    for alias in ADMIN_ALIASES:
+        alias_clean = ''.join(alias.split()).lower()
+        if alias_clean in text_clean:
+            try:
+                profile = line_bot_api.get_profile(uid)  # uid = مين اللي كتب
+                mentioner_name = profile.display_name
+                mentioner_pic = profile.picture_url or "https://i.imgur.com/U5lzq0F.jpeg"
+            except:
+                mentioner_name, mentioner_pic = "عضو مجهول", "https://i.imgur.com/U5lzq0F.jpeg"
+            send_admin_mention_card(event.reply_token, mentioner_name, mentioner_pic)
+            return
 
     # الأوامر الأخرى — بدون أي تغيير
     if text.lower() == ".g" and uid == ADMIN_USER_ID:
