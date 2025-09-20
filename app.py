@@ -48,9 +48,9 @@ ROLES = [
 game_active = False
 user_roles = {}  # تخزين مناصب المستخدمين
 
-# ============= دالة بطاقة المناصب (كما هي - احترافية) =============
+# ============= دالة بطاقة المناصب (معدلة - صورة دائرية بتلميع وإطار ذهبي) =============
 def send_role_card(reply_token, name, profile_pic, role):
-    bg_url = "https://i.imgur.com/U5lzq0F.jpeg"
+    bg_url = "https://i.imgur.com/SAqlVNr.gif"  # ✅ خلفية متحركة الآن
 
     flex = FlexSendMessage(
         alt_text="🎉 بطاقتك الرسمية!",
@@ -72,7 +72,8 @@ def send_role_card(reply_token, name, profile_pic, role):
                         "offsetBottom": "0px",
                         "offsetStart": "0px",
                         "offsetEnd": "0px",
-                        "flex": 1
+                        "flex": 1,
+                        "opacity": "0.6"  # ✅ شفافية للخلفية المتحركة
                     },
                     {
                         "type": "box",
@@ -106,16 +107,34 @@ def send_role_card(reply_token, name, profile_pic, role):
                         "type": "box",
                         "layout": "vertical",
                         "contents": [
+                            # ✅ صورة العضو مع إطار أصفر وتلميع
                             {
-                                "type": "image",
-                                "url": profile_pic,
-                                "size": "xl",
-                                "aspectMode": "cover",
-                                "aspectRatio": "1:1",
+                                "type": "box",
+                                "layout": "vertical",
+                                "contents": [
+                                    {
+                                        "type": "image",
+                                        "url": profile_pic,
+                                        "size": "xl",
+                                        "aspectMode": "cover",
+                                        "aspectRatio": "1:1",
+                                        "cornerRadius": "100px",
+                                        "align": "center"
+                                    }
+                                ],
                                 "cornerRadius": "100px",
+                                "borderWidth": "4px",
+                                "borderColor": "#FFD700",  # ذهبي
                                 "align": "center",
                                 "margin": "xxl",
-                                "offsetTop": "40px"
+                                "offsetTop": "40px",
+                                "paddingAll": "2px",
+                                "background": {
+                                    "type": "linearGradient",
+                                    "angle": "45deg",
+                                    "startColor": "#FFFFFF00",
+                                    "endColor": "#FFFF0033"
+                                }
                             },
                             {
                                 "type": "text",
@@ -179,7 +198,7 @@ def send_role_card(reply_token, name, profile_pic, role):
     )
     line_bot_api.reply_message(reply_token, flex)
 
-# ============= دالة بطاقة المنشن (متحركة - GIF الجديد) =============
+# ============= دالة بطاقة المنشن (معدلة - صورة بتلميع + إيموجيات ملكية) =============
 def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
     flex = FlexSendMessage(
         alt_text="✨ عاشور مشغول الحين!",
@@ -190,10 +209,10 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                 "type": "box",
                 "layout": "vertical",
                 "contents": [
-                    # الخلفية المتحركة (GIF الجديد)
+                    # الخلفية المتحركة
                     {
                         "type": "image",
-                        "url": "https://i.imgur.com/SAqlVNr.gif",  # ✅ GIF الجديد - حركته فنية
+                        "url": "https://i.imgur.com/SAqlVNr.gif",
                         "size": "full",
                         "aspectMode": "cover",
                         "position": "absolute",
@@ -203,7 +222,7 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                         "offsetEnd": "0px",
                         "flex": 1,
                         "aspectRatio": "9:16",
-                        "opacity": "0.5"  # شفافية متوسطة لتوازن بين الجمال والوضوح
+                        "opacity": "0.5"
                     },
                     # إطار براق
                     {
@@ -219,35 +238,50 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                         "offsetStart": "4px",
                         "offsetEnd": "4px"
                     },
-                    # المحتوى الرئيسي (يظهر فوق GIF)
+                    # المحتوى الرئيسي
                     {
                         "type": "box",
                         "layout": "vertical",
                         "contents": [
-                            # صورة العضو
+                            # ✅ صورة العضو مع إطار أصفر وتلميع
                             {
-                                "type": "image",
-                                "url": mentioner_pic,
-                                "size": "xl",
-                                "aspectMode": "cover",
-                                "aspectRatio": "1:1",
+                                "type": "box",
+                                "layout": "vertical",
+                                "contents": [
+                                    {
+                                        "type": "image",
+                                        "url": mentioner_pic,
+                                        "size": "xl",
+                                        "aspectMode": "cover",
+                                        "aspectRatio": "1:1",
+                                        "cornerRadius": "100px",
+                                        "align": "center"
+                                    }
+                                ],
                                 "cornerRadius": "100px",
+                                "borderWidth": "4px",
+                                "borderColor": "#FFD700",
                                 "align": "center",
-                                "margin": "xxl"
+                                "margin": "xxl",
+                                "paddingAll": "2px",
+                                "background": {
+                                    "type": "linearGradient",
+                                    "angle": "135deg",
+                                    "startColor": "#FFFFFF22",
+                                    "endColor": "#FFFF0044"
+                                }
                             },
-                            # اسم العضو
                             {
                                 "type": "text",
                                 "text": mentioner_name,
                                 "weight": "bold",
                                 "size": "lg",
                                 "align": "center",
-                                "color": "#FFFFFF",  # أبيض ليعمل تباين مع الخلفية
+                                "color": "#FFFFFF",
                                 "margin": "md",
                                 "wrap": True,
                                 "style": "normal"
                             },
-                            # خط فاصل ملون
                             {
                                 "type": "box",
                                 "layout": "horizontal",
@@ -271,48 +305,45 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                                 ],
                                 "margin": "lg"
                             },
-                            # رسالة رئيسية
                             {
                                 "type": "text",
                                 "text": "يا حلو عاشور مشغول الحين 💌",
                                 "weight": "bold",
                                 "size": "md",
                                 "align": "center",
-                                "color": "#FFFFFF",  # أبيض
+                                "color": "#FFFFFF",
                                 "margin": "sm",
                                 "wrap": True
                             },
-                            # رسالة ثانوية
                             {
                                 "type": "text",
                                 "text": "يمكنك ترك رسالة له بالخاص ✨",
                                 "size": "sm",
                                 "align": "center",
-                                "color": "#FFFFE0",  # أصفر فاتح
+                                "color": "#FFFFE0",
                                 "margin": "none",
                                 "wrap": True
                             },
-                            # رموز تعبيرية للتزيين
+                            # ✅ إيموجيات ملكية جديدة
                             {
                                 "type": "box",
                                 "layout": "horizontal",
                                 "contents": [
-                                    {"type": "text", "text": "🌟", "size": "sm", "gravity": "center"},
-                                    {"type": "text", "text": "💖", "size": "sm", "gravity": "center"},
-                                    {"type": "text", "text": "🎀", "size": "sm", "gravity": "center"},
-                                    {"type": "text", "text": "✨", "size": "sm", "gravity": "center"},
-                                    {"type": "text", "text": "💫", "size": "sm", "gravity": "center"}
+                                    {"type": "text", "text": "👑", "size": "sm", "gravity": "center"},
+                                    {"type": "text", "text": "⚡", "size": "sm", "gravity": "center"},
+                                    {"type": "text", "text": "🎖️", "size": "sm", "gravity": "center"},
+                                    {"type": "text", "text": "🎯", "size": "sm", "gravity": "center"},
+                                    {"type": "text", "text": "🏆", "size": "sm", "gravity": "center"}
                                 ],
                                 "justifyContent": "center",
                                 "margin": "lg"
                             },
-                            # شعار
                             {
                                 "type": "text",
                                 "text": "👑560👑",
                                 "size": "xs",
                                 "align": "center",
-                                "color": "#FFFFFFDD",  # أبيض شبه شفاف
+                                "color": "#FFFFFFDD",
                                 "margin": "xl"
                             }
                         ],
@@ -320,7 +351,7 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                         "paddingAll": "24px",
                         "justifyContent": "center",
                         "alignItems": "center",
-                        "backgroundColor": "#00000000"  # شفاف
+                        "backgroundColor": "#00000000"
                     }
                 ],
                 "paddingAll": "0px",
@@ -355,9 +386,9 @@ def handle_message(event):
         try:
             profile = line_bot_api.get_profile(uid)  # uid = مين اللي كتب
             mentioner_name = profile.display_name
-            mentioner_pic = profile.picture_url or "https://i.imgur.com/U5lzq0F.jpeg"
+            mentioner_pic = profile.picture_url or "https://i.imgur.com/SAqlVNr.gif"
         except:
-            mentioner_name, mentioner_pic = "عضو مجهول", "https://i.imgur.com/U5lzq0F.jpeg"
+            mentioner_name, mentioner_pic = "عضو مجهول", "https://i.imgur.com/SAqlVNr.gif"
         send_admin_mention_card(event.reply_token, mentioner_name, mentioner_pic)
         return
 
@@ -390,9 +421,9 @@ def handle_message(event):
             try:
                 profile = line_bot_api.get_profile(uid)
                 name = profile.display_name
-                pic  = profile.picture_url or "https://i.imgur.com/U5lzq0F.jpeg"
+                pic  = profile.picture_url or "https://i.imgur.com/SAqlVNr.gif"
             except:
-                name, pic = "عضو مجهول", "https://i.imgur.com/U5lzq0F.jpeg"
+                name, pic = "عضو مجهول", "https://i.imgur.com/SAqlVNr.gif"
             role = random.choice(ROLES)
             user_roles[uid] = role
             send_role_card(event.reply_token, name, pic, role)
