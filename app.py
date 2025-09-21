@@ -3,7 +3,12 @@ import os, random
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, FlexSendMessage, TextSendMessage
+from linebot.models import (
+    MessageEvent, TextMessage, FlexSendMessage, TextSendMessage,
+    FollowEvent, MemberJoinedEvent, MemberLeftEvent
+)
+from apscheduler.schedulers.background import BackgroundScheduler
+import atexit
 
 app = Flask(__name__)
 
@@ -11,7 +16,6 @@ app = Flask(__name__)
 CHANNEL_ACCESS_TOKEN = os.environ.get("CHANNEL_ACCESS_TOKEN")
 CHANNEL_SECRET       = os.environ.get("CHANNEL_SECRET")
 ADMIN_USER_ID        = os.environ.get("ADMIN_USER_ID")
-USER_ID              = os.environ.get("USER_ID")
 
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
 handler      = WebhookHandler(CHANNEL_SECRET)
@@ -47,10 +51,16 @@ ROLES = [
 
 game_active = False
 user_roles = {}  # تخزين مناصب المستخدمين
+known_groups = set()  # ✅ تخزين معرفات المجموعات اللي دخلها البوت
+
+# ===== متغيرات لعبة القرعة =====
+raffle_active = False
+raffle_participants = {}  # group_id -> set of user_ids
+raffle_names = {}         # user_id -> display_name
 
 # ============= دالة بطاقة المناصب (معدلة - صورة دائرية بتلميع وإطار ذهبي) =============
 def send_role_card(reply_token, name, profile_pic, role):
-    bg_url = "https://i.imgur.com/SAqlVNr.gif"  # ✅ خلفية متحركة الآن
+    bg_url = "https://i.imgur.com/SAqlVNr.gif"
 
     flex = FlexSendMessage(
         alt_text="🎉 بطاقتك الرسمية!",
@@ -73,7 +83,7 @@ def send_role_card(reply_token, name, profile_pic, role):
                         "offsetStart": "0px",
                         "offsetEnd": "0px",
                         "flex": 1,
-                        "opacity": "0.6"  # ✅ شفافية للخلفية المتحركة
+                        "opacity": "0.6"
                     },
                     {
                         "type": "box",
@@ -107,7 +117,6 @@ def send_role_card(reply_token, name, profile_pic, role):
                         "type": "box",
                         "layout": "vertical",
                         "contents": [
-                            # ✅ صورة العضو مع إطار أصفر وتلميع
                             {
                                 "type": "box",
                                 "layout": "vertical",
@@ -124,7 +133,7 @@ def send_role_card(reply_token, name, profile_pic, role):
                                 ],
                                 "cornerRadius": "100px",
                                 "borderWidth": "4px",
-                                "borderColor": "#FFD700",  # ذهبي
+                                "borderColor": "#FFD700",
                                 "align": "center",
                                 "margin": "xxl",
                                 "offsetTop": "40px",
@@ -209,7 +218,6 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                 "type": "box",
                 "layout": "vertical",
                 "contents": [
-                    # الخلفية المتحركة
                     {
                         "type": "image",
                         "url": "https://i.imgur.com/SAqlVNr.gif",
@@ -224,7 +232,6 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                         "aspectRatio": "9:16",
                         "opacity": "0.5"
                     },
-                    # إطار براق
                     {
                         "type": "box",
                         "layout": "vertical",
@@ -238,12 +245,10 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                         "offsetStart": "4px",
                         "offsetEnd": "4px"
                     },
-                    # المحتوى الرئيسي
                     {
                         "type": "box",
                         "layout": "vertical",
                         "contents": [
-                            # ✅ صورة العضو مع إطار أصفر وتلميع
                             {
                                 "type": "box",
                                 "layout": "vertical",
@@ -324,7 +329,6 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                                 "margin": "none",
                                 "wrap": True
                             },
-                            # ✅ إيموجيات ملكية جديدة
                             {
                                 "type": "box",
                                 "layout": "horizontal",
@@ -361,6 +365,161 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
     )
     line_bot_api.reply_message(reply_token, flex)
 
+# ============= دالة بطاقة تسجيل القرعة =============
+def send_raffle_card(reply_token, group_id):
+    flex = FlexSendMessage(
+        alt_text="🎯 سجّل في القرعة!",
+        contents={
+            "type": "bubble",
+            "size": "kilo",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {
+                        "type": "image",
+                        "url": "https://i.imgur.com/SAqlVNr.gif",
+                        "size": "full",
+                        "aspectMode": "cover",
+                        "position": "absolute",
+                        "offsetTop": "0px",
+                        "offsetBottom": "0px",
+                        "offsetStart": "0px",
+                        "offsetEnd": "0px",
+                        "flex": 1,
+                        "opacity": "0.5"
+                    },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "contents": [],
+                        "borderWidth": "4px",
+                        "borderColor": "#FFFFFF",
+                        "cornerRadius": "32px",
+                        "position": "absolute",
+                        "offsetTop": "8px",
+                        "offsetBottom": "8px",
+                        "offsetStart": "8px",
+                        "offsetEnd": "8px"
+                    },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "contents": [
+                            {
+                                "type": "text",
+                                "text": "🎯 القرعة الحين مفتوحة!",
+                                "weight": "bold",
+                                "size": "lg",
+                                "align": "center",
+                                "color": "#FFFFFF",
+                                "margin": "xxl"
+                            },
+                            {
+                                "type": "text",
+                                "text": "اضغط الزر تحت عشان تسجل اسمك",
+                                "size": "md",
+                                "align": "center",
+                                "color": "#FFFFE0",
+                                "margin": "md",
+                                "wrap": True
+                            },
+                            {
+                                "type": "button",
+                                "action": {
+                                    "type": "message",
+                                    "label": "✅ سجّلني!",
+                                    "text": "سجلني"
+                                },
+                                "style": "primary",
+                                "color": "#FFD700",
+                                "margin": "xl"
+                            },
+                            {
+                                "type": "text",
+                                "text": "👑560👑",
+                                "size": "xs",
+                                "align": "center",
+                                "color": "#FFFFFFDD",
+                                "margin": "xl"
+                            }
+                        ],
+                        "position": "relative",
+                        "paddingAll": "24px",
+                        "justifyContent": "center",
+                        "alignItems": "center",
+                        "backgroundColor": "#00000000"
+                    }
+                ],
+                "paddingAll": "0px",
+                "backgroundColor": "#00000000"
+            }
+        }
+    )
+    line_bot_api.reply_message(reply_token, flex)
+
+# ============= دالة إرسال تذكير الصلاة على النبي ﷺ =============
+def send_prayer_reminder():
+    if not known_groups:
+        print("لا توجد مجموعات مسجلة لإرسال التذكير.")
+        return
+
+    message = TextSendMessage(text="📿 اللهم صلِّ على محمد 🌹\nاللهم صلِّ وسلم وبارك على نبينا محمد ﷺ")
+
+    for group_id in known_groups:
+        try:
+            line_bot_api.push_message(group_id, message)
+            print(f"تم إرسال تذكير الصلاة على النبي إلى المجموعة: {group_id}")
+        except Exception as e:
+            print(f"فشل إرسال التذكير إلى {group_id}: {e}")
+
+# ============= إعداد الجدولة =============
+scheduler = BackgroundScheduler()
+scheduler.add_job(func=send_prayer_reminder, trigger="interval", hours=1)
+scheduler.start()
+
+# إيقاف الجدولة عند إغلاق التطبيق
+atexit.register(lambda: scheduler.shutdown())
+
+# ============= معالجة دخول البوت للمجموعة =============
+@handler.add(FollowEvent)
+def handle_follow(event):
+    source = event.source
+    if hasattr(source, 'group_id') and source.group_id:
+        known_groups.add(source.group_id)
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="شكرًا على الإضافة 🎉👑")
+        )
+
+# ============= معالجة دخول عضو جديد =============
+@handler.add(MemberJoinedEvent)
+def handle_member_joined(event):
+    for member in event.joined.members:
+        try:
+            profile = line_bot_api.get_profile(member.user_id)
+            name = profile.display_name
+        except:
+            name = "عضو جديد"
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=f"مرحبًا {name} 🎊👑")
+        )
+
+# ============= معالجة خروج عضو =============
+@handler.add(MemberLeftEvent)
+def handle_member_left(event):
+    for member in event.left.members:
+        try:
+            profile = line_bot_api.get_profile(member.user_id)
+            name = profile.display_name
+        except:
+            name = "عضو"
+        line_bot_api.push_message(
+            event.source.group_id,
+            TextSendMessage(text=f"وداعًا {name} 😢👑")
+        )
+
 # ============= نقطة الـ Webhook =============
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -375,16 +534,24 @@ def callback():
 # ============= معالجة الرسائل =============
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    global game_active
+    global game_active, raffle_active, raffle_participants, raffle_names
     text = event.message.text.strip()
     uid  = event.source.user_id
+    source = event.source
+
+    # ✅ تسجيل المجموعة إذا كانت جديدة
+    if hasattr(source, 'group_id') and source.group_id:
+        group_id = source.group_id
+        known_groups.add(group_id)
+    else:
+        group_id = None
 
     # ✅ يرد فقط على 3 عبارات بالضبط — لا أكثر ولا أقل
     EXACT_TRIGGERS = {"عاشور", "بو جواد", "@ـــ ⁵⁶⁰"}
 
     if text in EXACT_TRIGGERS:
         try:
-            profile = line_bot_api.get_profile(uid)  # uid = مين اللي كتب
+            profile = line_bot_api.get_profile(uid)
             mentioner_name = profile.display_name
             mentioner_pic = profile.picture_url or "https://i.imgur.com/SAqlVNr.gif"
         except:
@@ -401,318 +568,70 @@ def handle_message(event):
 
     if text.lower() == ".stop" and uid == ADMIN_USER_ID:
         game_active = False
-        user_roles.clear()  # تجديد المناصب
+        user_roles.clear()
         line_bot_api.reply_message(event.reply_token,
             TextSendMessage(text="⏹️ تم إيقاف لعبة المناصب وتجديدها!"))
         return
 
-    if text.lower() == ".u" and uid == ADMIN_USER_ID:
-        line_bot_api.reply_message(event.reply_token,
-            TextSendMessage(text="🧹 تم تنظيف الدردشة!"))
-        return
-
-    # 🎲 لعبة زهر اللّقمة
-    if text.lower() in [".roll", ".زَر"]:
-        dice_result = random.randint(1, 6)
-        dice_emojis = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"]
-        dice_gif_map = {
-            1: "https://i.imgur.com/8VZLXQh.gif",
-            2: "https://i.imgur.com/3WQYp5f.gif",
-            3: "https://i.imgur.com/9JmR7kN.gif",
-            4: "https://i.imgur.com/4Kk0RzX.gif",
-            5: "https://i.imgur.com/7ZQp1dE.gif",
-            6: "https://i.imgur.com/6W0R2fO.gif"
-        }
-        gif_url = dice_gif_map.get(dice_result, "https://i.imgur.com/8VZLXQh.gif")
-
-        try:
-            profile = line_bot_api.get_profile(uid)
-            name = profile.display_name
-        except:
-            name = "عضو مجهول"
-
-        flex = FlexSendMessage(
-            alt_text=f"🎲 {name} رمى الزهر!",
-            contents={
-                "type": "bubble",
-                "size": "kilo",
-                "body": {
-                    "type": "box",
-                    "layout": "vertical",
-                    "contents": [
-                        {
-                            "type": "image",
-                            "url": "https://i.imgur.com/SAqlVNr.gif",
-                            "size": "full",
-                            "aspectMode": "cover",
-                            "position": "absolute",
-                            "offsetTop": "0px",
-                            "offsetBottom": "0px",
-                            "offsetStart": "0px",
-                            "offsetEnd": "0px",
-                            "flex": 1,
-                            "opacity": "0.4"
-                        },
-                        {
-                            "type": "box",
-                            "layout": "vertical",
-                            "contents": [],
-                            "borderWidth": "4px",
-                            "borderColor": "#FFFFFF",
-                            "cornerRadius": "32px",
-                            "position": "absolute",
-                            "offsetTop": "8px",
-                            "offsetBottom": "8px",
-                            "offsetStart": "8px",
-                            "offsetEnd": "8px"
-                        },
-                        {
-                            "type": "box",
-                            "layout": "vertical",
-                            "contents": [
-                                {
-                                    "type": "image",
-                                    "url": gif_url,
-                                    "size": "3xl",
-                                    "aspectMode": "fit",
-                                    "align": "center",
-                                    "margin": "xxl"
-                                },
-                                {
-                                    "type": "text",
-                                    "text": f"🎲 {name}",
-                                    "weight": "bold",
-                                    "size": "lg",
-                                    "align": "center",
-                                    "color": "#FFFFFF",
-                                    "margin": "md"
-                                },
-                                {
-                                    "type": "text",
-                                    "text": f"رماها وطلع له: {dice_result}",
-                                    "weight": "bold",
-                                    "size": "xl",
-                                    "align": "center",
-                                    "color": "#FFD700",
-                                    "margin": "none"
-                                },
-                                {
-                                    "type": "text",
-                                    "text": dice_emojis[dice_result - 1],
-                                    "size": "4xl",
-                                    "align": "center",
-                                    "color": "#FFFFFF",
-                                    "margin": "sm"
-                                },
-                                {
-                                    "type": "text",
-                                    "text": "👑560👑",
-                                    "size": "xs",
-                                    "align": "center",
-                                    "color": "#FFFFFFDD",
-                                    "margin": "xl"
-                                }
-                            ],
-                            "position": "relative",
-                            "paddingAll": "24px",
-                            "justifyContent": "center",
-                            "alignItems": "center",
-                            "backgroundColor": "#00000000"
-                        }
-                    ],
-                    "paddingAll": "0px",
-                    "backgroundColor": "#00000000"
-                }
-            }
-        )
-        line_bot_api.reply_message(event.reply_token, flex)
-        return
-
-    # 🤪 لعبة "مين يمثل؟!" - مهام تمثيلية مضحكة
-    if text.lower() in [".مثل", ".ادا", ".act"]:
-        tasks = [
-            "ادّعي إنك جوالك خطفه جن وبيكلمك بالليل!",
-            "صرخ في الشات: 'يا جماعة أنا بقرة!' 🐄",
-            "تظاهر إنك أمير وتطلب من الخادم يجيب لك القمر! 🌙",
-            "اقرأ آخر رسالة أرسلتها بصوت عالي جدًا وكأنك مذيع نشرة أخبار! 📢",
-            "تظاهر أنك روبوت وتكلم بجملة واحدة فقط: 'بيب بوب أنا لا أفهم المشاعر' 🤖",
-            "اسأل بوت آخر في الجروب: 'متى نتزوج؟' 💍",
-            "تظاهر أنك في مزاد وبيع آخر شيء أكلته! 🍕",
-            "ادّعي إنك شيخ قبيلة وتعاقب اللي ما يحب الكبسة! 🍚",
-            "تظاهر أنك مذيع طقس: 'درجة الحرارة 500 تحت الصفر... والناس تسبح!' 🌡️",
-            "قول للشخص اللي فوقك في الشات: 'أنا جيت أخطفك عروسة!' 👰",
-            "تظاهر أنك محقق وتسأل الجميع: 'مين اللي أكل آخر قطعة شكولاتة؟!' 🍫",
-            "ادّعي إنك مخترع وقدم اختراعك الجديد: 'المنديل الطائر'! 🧻✈️",
-            "تظاهر أنك في برنامج مسابقات وصرخ: 'أعطوني الجووووائز!' 🎁",
-            "ادّعي إنك طبيب وشخصيتك مريض — وداويه بـ'خل وليمون'! 🍋",
-            "تظاهر أنك ساحر وحاول تحول أقرب واحد لك إلى ضفدعة! 🐸",
-            "ادّعي إنك ملك وطلب من الجميع يصفق لك 10 ثواني! 👏",
-            "تظاهر أنك في مطعم فاخر واطلب 'برجر من سحاب'! ☁️🍔",
-            "ادّعي إنك نينجا واكتب: 'هاااااااي ياه!' ثم اهرب! 🥷",
-            "تظاهر أنك في مقابلة عمل وأول سؤالك: 'شو رأيك في الموز؟' 🍌",
-            "ادّعي إنك مذيع رياضي وعلق على مباراة... بين قطتين! 🐱⚽"
-        ]
-
-        selected_task = random.choice(tasks)
-
-        try:
-            profile = line_bot_api.get_profile(uid)
-            name = profile.display_name
-        except:
-            name = "عضو مجهول"
-
-        flex = FlexSendMessage(
-            alt_text=f"🎭 {name} — دورك تتمثّل!",
-            contents={
-                "type": "bubble",
-                "size": "kilo",
-                "body": {
-                    "type": "box",
-                    "layout": "vertical",
-                    "contents": [
-                        {
-                            "type": "image",
-                            "url": "https://i.imgur.com/SAqlVNr.gif",
-                            "size": "full",
-                            "aspectMode": "cover",
-                            "position": "absolute",
-                            "offsetTop": "0px",
-                            "offsetBottom": "0px",
-                            "offsetStart": "0px",
-                            "offsetEnd": "0px",
-                            "flex": 1,
-                            "opacity": "0.4"
-                        },
-                        {
-                            "type": "box",
-                            "layout": "vertical",
-                            "contents": [],
-                            "borderWidth": "4px",
-                            "borderColor": "#FFFFFF",
-                            "cornerRadius": "32px",
-                            "position": "absolute",
-                            "offsetTop": "8px",
-                            "offsetBottom": "8px",
-                            "offsetStart": "8px",
-                            "offsetEnd": "8px"
-                        },
-                        {
-                            "type": "box",
-                            "layout": "vertical",
-                            "contents": [
-                                {
-                                    "type": "image",
-                                    "url": "https://i.imgur.com/6W0R2fO.gif",
-                                    "size": "3xl",
-                                    "aspectMode": "fit",
-                                    "align": "center",
-                                    "margin": "xxl"
-                                },
-                                {
-                                    "type": "text",
-                                    "text": f"🎭 {name}",
-                                    "weight": "bold",
-                                    "size": "lg",
-                                    "align": "center",
-                                    "color": "#FFFFFF",
-                                    "margin": "md"
-                                },
-                                {
-                                    "type": "text",
-                                    "text": "دورك تتمثّل!",
-                                    "weight": "bold",
-                                    "size": "xl",
-                                    "align": "center",
-                                    "color": "#FF69B4",  # وردي — للضحك والعبث
-                                    "margin": "none"
-                                },
-                                {
-                                    "type": "box",
-                                    "layout": "horizontal",
-                                    "contents": [
-                                        {"type": "filler"},
-                                        {
-                                            "type": "box",
-                                            "layout": "vertical",
-                                            "contents": [],
-                                            "width": "60%",
-                                            "height": "2px",
-                                            "backgroundColor": "#FF69B4",
-                                            "cornerRadius": "1px"
-                                        },
-                                        {"type": "filler"}
-                                    ],
-                                    "margin": "lg"
-                                },
-                                {
-                                    "type": "text",
-                                    "text": selected_task,
-                                    "weight": "bold",
-                                    "size": "md",
-                                    "align": "center",
-                                    "color": "#FFFFFF",
-                                    "margin": "md",
-                                    "wrap": True,
-                                    "style": "normal"
-                                },
-                                {
-                                    "type": "text",
-                                    "text": "⏰ عندك دقيقة... يلا بينا! 😜",
-                                    "size": "sm",
-                                    "align": "center",
-                                    "color": "#FFFFE0",
-                                    "margin": "sm",
-                                    "wrap": True
-                                },
-                                {
-                                    "type": "text",
-                                    "text": "👑560👑",
-                                    "size": "xs",
-                                    "align": "center",
-                                    "color": "#FFFFFFDD",
-                                    "margin": "xl"
-                                }
-                            ],
-                            "position": "relative",
-                            "paddingAll": "24px",
-                            "justifyContent": "center",
-                            "alignItems": "center",
-                            "backgroundColor": "#00000000"
-                        }
-                    ],
-                    "paddingAll": "0px",
-                    "backgroundColor": "#00000000"
-                }
-            }
-        )
-        line_bot_api.reply_message(event.reply_token, flex)
-        return
-
     # 🚪 أمر مغادرة المجموعة — فقط للأدمن
     if text.lower() == ".leave" and uid == ADMIN_USER_ID:
-        source = event.source
-        if hasattr(source, 'group_id') and source.group_id:
-            # رسالة وداع جميلة
-            farewell_message = (
-                "😢 تم طردي من المجموعة بأمر الأدمن!\n"
-                "لكن لا تنسوني... أنا بوت 560، وعدكم إني أرجع إذا دعوتموني! 💌👑\n"
-                "وداعًا... إلى لقاء قريب! 👋✨"
-            )
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=farewell_message))
-            # غادر المجموعة
-            line_bot_api.leave_group(source.group_id)
-            return
-        elif hasattr(source, 'room_id') and source.room_id:
-            # لو في روم (نادر)
-            farewell_message = "👋 وداعًا من هذه الدردشة! لا تنسوني!"
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=farewell_message))
-            line_bot_api.leave_room(source.room_id)
+        if group_id:
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text="وداعًا 👋👑"))
+            line_bot_api.leave_group(group_id)
             return
         else:
-            # لو في الخاص — ما ينفع يغادر
             line_bot_api.reply_message(event.reply_token,
-                TextSendMessage(text="❌ هذا الأمر فقط للمجموعات أو الرومات."))
+                TextSendMessage(text="❌ هذا الأمر فقط للمجموعات."))
             return
+
+    # 🎯 لعبة القرعة - بدء التسجيل
+    if text.lower() == ".r" and group_id:
+        raffle_active = True
+        raffle_participants[group_id] = set()
+        send_raffle_card(event.reply_token, group_id)
+        return
+
+    # 📋 لعبة القرعة - عرض القائمة
+    if text.lower() == ".rr" and group_id:
+        participants = raffle_participants.get(group_id, set())
+        if not participants:
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text="📭 مافيه أحد مسجل!"))
+            return
+        names = [raffle_names.get(uid, "عضو مجهول") for uid in participants]
+        message = "📋 قائمة المسجلين:\n" + "\n".join(f"• {name}" for name in names)
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=message))
+        return
+
+    # 🎁 لعبة القرعة - اختيار فائز
+    if text.lower() == ".rs" and group_id:
+        participants = raffle_participants.get(group_id, set())
+        if not participants:
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text="📭 مافيه أحد مسجل!"))
+            return
+        winner_id = random.choice(list(participants))
+        winner_name = raffle_names.get(winner_id, "الفائز المجهول")
+        line_bot_api.reply_message(event.reply_token,
+            TextSendMessage(text=f"🎉🎉🎉\nالفائز هو: {winner_name} 🏆👑\nمبروك!"))
+        # ✅ إعادة ضبط اللعبة
+        raffle_active = False
+        raffle_participants.pop(group_id, None)
+        return
+
+    # ✅ تسجيل في القرعة
+    if text == "سجلني" and raffle_active and group_id:
+        try:
+            profile = line_bot_api.get_profile(uid)
+            name = profile.display_name
+        except:
+            name = "عضو مجهول"
+        raffle_participants.setdefault(group_id, set()).add(uid)
+        raffle_names[uid] = name
+        line_bot_api.reply_message(event.reply_token,
+            TextSendMessage(text=f"✅ تم تسجيلك: {name}"))
+        return
 
     if game_active and text == "منصب":
         if uid in user_roles:
