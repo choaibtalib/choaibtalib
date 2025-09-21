@@ -54,7 +54,7 @@ user_roles = {}  # تخزين مناصب المستخدمين
 known_groups = set()  # ✅ تخزين معرفات المجموعات اللي دخلها البوت
 
 # ===== متغيرات لعبة القرعة =====
-raffle_active = False
+raffle_active = {}      # group_id -> bool
 raffle_participants = {}  # group_id -> set of user_ids
 raffle_names = {}         # user_id -> display_name
 
@@ -365,7 +365,7 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
     )
     line_bot_api.reply_message(reply_token, flex)
 
-# ============= دالة بطاقة تسجيل القرعة =============
+# ============= دالة بطاقة تسجيل القرعة (معدلة - زر أسود) =============
 def send_raffle_card(reply_token, group_id):
     flex = FlexSendMessage(
         alt_text="🎯 سجّل في القرعة!",
@@ -432,7 +432,7 @@ def send_raffle_card(reply_token, group_id):
                                     "text": "سجلني"
                                 },
                                 "style": "primary",
-                                "color": "#FFD700",
+                                "color": "#000000",  # ✅ لون أسود الآن
                                 "margin": "xl"
                             },
                             {
@@ -501,8 +501,9 @@ def handle_member_joined(event):
             name = profile.display_name
         except:
             name = "عضو جديد"
-        line_bot_api.reply_message(
-            event.reply_token,
+        # ✅ إرسال ترحيب في نفس المجموعة
+        line_bot_api.push_message(
+            event.source.group_id,
             TextSendMessage(text=f"مرحبًا {name} 🎊👑")
         )
 
@@ -515,6 +516,7 @@ def handle_member_left(event):
             name = profile.display_name
         except:
             name = "عضو"
+        # ✅ إرسال وداع في نفس المجموعة
         line_bot_api.push_message(
             event.source.group_id,
             TextSendMessage(text=f"وداعًا {name} 😢👑")
@@ -587,7 +589,7 @@ def handle_message(event):
 
     # 🎯 لعبة القرعة - بدء التسجيل
     if text.lower() == ".r" and group_id:
-        raffle_active = True
+        raffle_active[group_id] = True
         raffle_participants[group_id] = set()
         send_raffle_card(event.reply_token, group_id)
         return
@@ -615,22 +617,42 @@ def handle_message(event):
         winner_name = raffle_names.get(winner_id, "الفائز المجهول")
         line_bot_api.reply_message(event.reply_token,
             TextSendMessage(text=f"🎉🎉🎉\nالفائز هو: {winner_name} 🏆👑\nمبروك!"))
-        # ✅ إعادة ضبط اللعبة
-        raffle_active = False
+        # ✅ إعادة ضبط اللعبة لهذه المجموعة فقط
+        raffle_active.pop(group_id, None)
         raffle_participants.pop(group_id, None)
         return
 
-    # ✅ تسجيل في القرعة
-    if text == "سجلني" and raffle_active and group_id:
+    # ✅ تسجيل في القرعة — مع تحسينات
+    if text == "سجلني" and group_id:
+        # ✅ التحقق: هل اللعبة مفعلة في هذه المجموعة؟
+        if not raffle_active.get(group_id, False):
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text="❌ التسجيل مغلق حاليًا. انتظر الجولة القادمة!"))
+            return
+
+        # ✅ التحقق: هل العضو مسجل مسبقًا؟
+        if uid in raffle_participants.get(group_id, set()):
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text="✅ أنت مسجل مسبقًا! ما يلزم تسجيل مرتين 😊"))
+            return
+
+        # ✅ تسجيل العضو
         try:
             profile = line_bot_api.get_profile(uid)
             name = profile.display_name
         except:
             name = "عضو مجهول"
+
         raffle_participants.setdefault(group_id, set()).add(uid)
         raffle_names[uid] = name
         line_bot_api.reply_message(event.reply_token,
-            TextSendMessage(text=f"✅ تم تسجيلك: {name}"))
+            TextSendMessage(text=f"✅ تم تسجيلك: {name} 🎯"))
+
+        # ✅ إشعار لطيف بعد 3 تسجيلات
+        if len(raffle_participants[group_id]) % 3 == 0 and len(raffle_participants[group_id]) > 0:
+            line_bot_api.push_message(group_id,
+                TextSendMessage(text=f"🎯 {len(raffle_participants[group_id])} شخص سجلوا حتى الآن! من يجرؤ ينافس؟"))
+
         return
 
     if game_active and text == "منصب":
