@@ -411,24 +411,38 @@ def handle_message(event):
             TextSendMessage(text="🧹 تم تنظيف الدردشة!"))
         return
 
-    if game_active and text == "منصب":
-        if uid in user_roles:
-            previous_role = user_roles[uid]
-            line_bot_api.reply_message(event.reply_token,
-                TextSendMessage(text=f"لك تم إعطاؤك منصبك: {previous_role}"))
-            return
-        else:
-            try:
-                profile = line_bot_api.get_profile(uid)
-                name = profile.display_name
-                pic  = profile.picture_url or "https://i.imgur.com/SAqlVNr.gif"
-            except:
-                name, pic = "عضو مجهول", "https://i.imgur.com/SAqlVNr.gif"
-            role = random.choice(ROLES)
-            user_roles[uid] = role
-            send_role_card(event.reply_token, name, pic, role)
-            return
+    # 🎲 لعبة زهر اللّقمة
+    if text.lower() in [".roll", ".زَر"]:
+        dice_result = random.randint(1, 6)
+        dice_emojis = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"]
+        dice_gif_map = {
+            1: "https://i.imgur.com/8VZLXQh.gif",
+            2: "https://i.imgur.com/3WQYp5f.gif",
+            3: "https://i.imgur.com/9JmR7kN.gif",
+            4: "https://i.imgur.com/4Kk0RzX.gif",
+            5: "https://i.imgur.com/7ZQp1dE.gif",
+            6: "https://i.imgur.com/6W0R2fO.gif"
+        }
+        gif_url = dice_gif_map.get(dice_result, "https://i.imgur.com/8VZLXQh.gif")
 
-# ============= نقطة التشغيل =============
-if __name__ == "__main__":
-    app.run(port=5000, host="0.0.0.0")
+        try:
+            profile = line_bot_api.get_profile(uid)
+            name = profile.display_name
+        except:
+            name = "عضو مجهول"
+
+        flex = FlexSendMessage(
+            alt_text=f"🎲 {name} رمى الزهر!",
+            contents={
+                "type": "bubble",
+                "size": "kilo",
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {
+                            "type": "image",
+                            "url": "https://i.imgur.com/SAqlVNr.gif",
+                            "size": "full",
+                            "aspectMode": "cover",
+                          
