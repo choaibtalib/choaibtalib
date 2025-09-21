@@ -445,4 +445,293 @@ def handle_message(event):
                             "url": "https://i.imgur.com/SAqlVNr.gif",
                             "size": "full",
                             "aspectMode": "cover",
-                          
+                            "position": "absolute",
+                            "offsetTop": "0px",
+                            "offsetBottom": "0px",
+                            "offsetStart": "0px",
+                            "offsetEnd": "0px",
+                            "flex": 1,
+                            "opacity": "0.4"
+                        },
+                        {
+                            "type": "box",
+                            "layout": "vertical",
+                            "contents": [],
+                            "borderWidth": "4px",
+                            "borderColor": "#FFFFFF",
+                            "cornerRadius": "32px",
+                            "position": "absolute",
+                            "offsetTop": "8px",
+                            "offsetBottom": "8px",
+                            "offsetStart": "8px",
+                            "offsetEnd": "8px"
+                        },
+                        {
+                            "type": "box",
+                            "layout": "vertical",
+                            "contents": [
+                                {
+                                    "type": "image",
+                                    "url": gif_url,
+                                    "size": "3xl",
+                                    "aspectMode": "fit",
+                                    "align": "center",
+                                    "margin": "xxl"
+                                },
+                                {
+                                    "type": "text",
+                                    "text": f"🎲 {name}",
+                                    "weight": "bold",
+                                    "size": "lg",
+                                    "align": "center",
+                                    "color": "#FFFFFF",
+                                    "margin": "md"
+                                },
+                                {
+                                    "type": "text",
+                                    "text": f"رماها وطلع له: {dice_result}",
+                                    "weight": "bold",
+                                    "size": "xl",
+                                    "align": "center",
+                                    "color": "#FFD700",
+                                    "margin": "none"
+                                },
+                                {
+                                    "type": "text",
+                                    "text": dice_emojis[dice_result - 1],
+                                    "size": "4xl",
+                                    "align": "center",
+                                    "color": "#FFFFFF",
+                                    "margin": "sm"
+                                },
+                                {
+                                    "type": "text",
+                                    "text": "👑560👑",
+                                    "size": "xs",
+                                    "align": "center",
+                                    "color": "#FFFFFFDD",
+                                    "margin": "xl"
+                                }
+                            ],
+                            "position": "relative",
+                            "paddingAll": "24px",
+                            "justifyContent": "center",
+                            "alignItems": "center",
+                            "backgroundColor": "#00000000"
+                        }
+                    ],
+                    "paddingAll": "0px",
+                    "backgroundColor": "#00000000"
+                }
+            }
+        )
+        line_bot_api.reply_message(event.reply_token, flex)
+        return
+
+    # 🤪 لعبة "مين يمثل؟!" - مهام تمثيلية مضحكة
+    if text.lower() in [".مثل", ".ادا", ".act"]:
+        tasks = [
+            "ادّعي إنك جوالك خطفه جن وبيكلمك بالليل!",
+            "صرخ في الشات: 'يا جماعة أنا بقرة!' 🐄",
+            "تظاهر إنك أمير وتطلب من الخادم يجيب لك القمر! 🌙",
+            "اقرأ آخر رسالة أرسلتها بصوت عالي جدًا وكأنك مذيع نشرة أخبار! 📢",
+            "تظاهر أنك روبوت وتكلم بجملة واحدة فقط: 'بيب بوب أنا لا أفهم المشاعر' 🤖",
+            "اسأل بوت آخر في الجروب: 'متى نتزوج؟' 💍",
+            "تظاهر أنك في مزاد وبيع آخر شيء أكلته! 🍕",
+            "ادّعي إنك شيخ قبيلة وتعاقب اللي ما يحب الكبسة! 🍚",
+            "تظاهر أنك مذيع طقس: 'درجة الحرارة 500 تحت الصفر... والناس تسبح!' 🌡️",
+            "قول للشخص اللي فوقك في الشات: 'أنا جيت أخطفك عروسة!' 👰",
+            "تظاهر أنك محقق وتسأل الجميع: 'مين اللي أكل آخر قطعة شكولاتة؟!' 🍫",
+            "ادّعي إنك مخترع وقدم اختراعك الجديد: 'المنديل الطائر'! 🧻✈️",
+            "تظاهر أنك في برنامج مسابقات وصرخ: 'أعطوني الجووووائز!' 🎁",
+            "ادّعي إنك طبيب وشخصيتك مريض — وداويه بـ'خل وليمون'! 🍋",
+            "تظاهر أنك ساحر وحاول تحول أقرب واحد لك إلى ضفدعة! 🐸",
+            "ادّعي إنك ملك وطلب من الجميع يصفق لك 10 ثواني! 👏",
+            "تظاهر أنك في مطعم فاخر واطلب 'برجر من سحاب'! ☁️🍔",
+            "ادّعي إنك نينجا واكتب: 'هاااااااي ياه!' ثم اهرب! 🥷",
+            "تظاهر أنك في مقابلة عمل وأول سؤالك: 'شو رأيك في الموز؟' 🍌",
+            "ادّعي إنك مذيع رياضي وعلق على مباراة... بين قطتين! 🐱⚽"
+        ]
+
+        selected_task = random.choice(tasks)
+
+        try:
+            profile = line_bot_api.get_profile(uid)
+            name = profile.display_name
+        except:
+            name = "عضو مجهول"
+
+        flex = FlexSendMessage(
+            alt_text=f"🎭 {name} — دورك تتمثّل!",
+            contents={
+                "type": "bubble",
+                "size": "kilo",
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {
+                            "type": "image",
+                            "url": "https://i.imgur.com/SAqlVNr.gif",
+                            "size": "full",
+                            "aspectMode": "cover",
+                            "position": "absolute",
+                            "offsetTop": "0px",
+                            "offsetBottom": "0px",
+                            "offsetStart": "0px",
+                            "offsetEnd": "0px",
+                            "flex": 1,
+                            "opacity": "0.4"
+                        },
+                        {
+                            "type": "box",
+                            "layout": "vertical",
+                            "contents": [],
+                            "borderWidth": "4px",
+                            "borderColor": "#FFFFFF",
+                            "cornerRadius": "32px",
+                            "position": "absolute",
+                            "offsetTop": "8px",
+                            "offsetBottom": "8px",
+                            "offsetStart": "8px",
+                            "offsetEnd": "8px"
+                        },
+                        {
+                            "type": "box",
+                            "layout": "vertical",
+                            "contents": [
+                                {
+                                    "type": "image",
+                                    "url": "https://i.imgur.com/6W0R2fO.gif",
+                                    "size": "3xl",
+                                    "aspectMode": "fit",
+                                    "align": "center",
+                                    "margin": "xxl"
+                                },
+                                {
+                                    "type": "text",
+                                    "text": f"🎭 {name}",
+                                    "weight": "bold",
+                                    "size": "lg",
+                                    "align": "center",
+                                    "color": "#FFFFFF",
+                                    "margin": "md"
+                                },
+                                {
+                                    "type": "text",
+                                    "text": "دورك تتمثّل!",
+                                    "weight": "bold",
+                                    "size": "xl",
+                                    "align": "center",
+                                    "color": "#FF69B4",  # وردي — للضحك والعبث
+                                    "margin": "none"
+                                },
+                                {
+                                    "type": "box",
+                                    "layout": "horizontal",
+                                    "contents": [
+                                        {"type": "filler"},
+                                        {
+                                            "type": "box",
+                                            "layout": "vertical",
+                                            "contents": [],
+                                            "width": "60%",
+                                            "height": "2px",
+                                            "backgroundColor": "#FF69B4",
+                                            "cornerRadius": "1px"
+                                        },
+                                        {"type": "filler"}
+                                    ],
+                                    "margin": "lg"
+                                },
+                                {
+                                    "type": "text",
+                                    "text": selected_task,
+                                    "weight": "bold",
+                                    "size": "md",
+                                    "align": "center",
+                                    "color": "#FFFFFF",
+                                    "margin": "md",
+                                    "wrap": True,
+                                    "style": "normal"
+                                },
+                                {
+                                    "type": "text",
+                                    "text": "⏰ عندك دقيقة... يلا بينا! 😜",
+                                    "size": "sm",
+                                    "align": "center",
+                                    "color": "#FFFFE0",
+                                    "margin": "sm",
+                                    "wrap": True
+                                },
+                                {
+                                    "type": "text",
+                                    "text": "👑560👑",
+                                    "size": "xs",
+                                    "align": "center",
+                                    "color": "#FFFFFFDD",
+                                    "margin": "xl"
+                                }
+                            ],
+                            "position": "relative",
+                            "paddingAll": "24px",
+                            "justifyContent": "center",
+                            "alignItems": "center",
+                            "backgroundColor": "#00000000"
+                        }
+                    ],
+                    "paddingAll": "0px",
+                    "backgroundColor": "#00000000"
+                }
+            }
+        )
+        line_bot_api.reply_message(event.reply_token, flex)
+        return
+
+    # 🚪 أمر مغادرة المجموعة — فقط للأدمن
+    if text.lower() == ".leave" and uid == ADMIN_USER_ID:
+        source = event.source
+        if hasattr(source, 'group_id') and source.group_id:
+            # رسالة وداع جميلة
+            farewell_message = (
+                "😢 تم طردي من المجموعة بأمر الأدمن!\n"
+                "لكن لا تنسوني... أنا بوت 560، وعدكم إني أرجع إذا دعوتموني! 💌👑\n"
+                "وداعًا... إلى لقاء قريب! 👋✨"
+            )
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=farewell_message))
+            # غادر المجموعة
+            line_bot_api.leave_group(source.group_id)
+            return
+        elif hasattr(source, 'room_id') and source.room_id:
+            # لو في روم (نادر)
+            farewell_message = "👋 وداعًا من هذه الدردشة! لا تنسوني!"
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=farewell_message))
+            line_bot_api.leave_room(source.room_id)
+            return
+        else:
+            # لو في الخاص — ما ينفع يغادر
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text="❌ هذا الأمر فقط للمجموعات أو الرومات."))
+            return
+
+    if game_active and text == "منصب":
+        if uid in user_roles:
+            previous_role = user_roles[uid]
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text=f"لك تم إعطاؤك منصبك: {previous_role}"))
+            return
+        else:
+            try:
+                profile = line_bot_api.get_profile(uid)
+                name = profile.display_name
+                pic  = profile.picture_url or "https://i.imgur.com/SAqlVNr.gif"
+            except:
+                name, pic = "عضو مجهول", "https://i.imgur.com/SAqlVNr.gif"
+            role = random.choice(ROLES)
+            user_roles[uid] = role
+            send_role_card(event.reply_token, name, pic, role)
+            return
+
+# ============= نقطة التشغيل =============
+if __name__ == "__main__":
+    app.run(port=5000, host="0.0.0.0")
