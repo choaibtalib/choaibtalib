@@ -28,7 +28,7 @@ ROLES = [
     "🌋 مراقب البراكين النائمة", "🐴 فارس السرج البلاستيكي", "🥳 منظم أعياد الميلاد المتعبة", "🧙 ساحر الظلال المتدلية",
     "🍞 خباز الكعك المتفجر", "🐘 مروض الفيلة الصغيرة", "🕰️ حارس الزمن المكسور", "📖 راوي القصص المللقة",
     "🥷 نينجا الظلال الملونة", "💡 مخترع المصباح الغازي", "🎯 بطل النبال المفقود", "🧼 صانع الصابون العطري",
-    "🎻 عازف الكمان المكسور", "🌌 عالم النجوم المغمورة", "🍯 صانع العسل الحامض", "🧵 خياط الستائر",
+    " violin عازف الكمان المكسور", "🌌 عالم النجوم المغمورة", "🍯 صانع العسل الحامض", "🧵 خياط الستائر",
     "🚒 مطفئ الحرائق المبلل", "🎭 ممثل البلاط المتقاعد", "🪆 جامع الدمى المكسورة", "🐝 مربي النحل العاطل",
     "🍹 خبير العصائر المجمدة", "🎩 سيد الألغاز المربكة", "🪖 جندي الحدود النائمة", "🐀 صائد الجرذان الأنيق",
     "🎮 لاعب محترف في النوم", "🥩 قصاب القصر المتخلف", "🧃 موزع العصير المغلق", "📦 مدير المخازن الفارغة",
@@ -84,7 +84,7 @@ prizes_list = [
 
 # ============= دالة بطاقة المناصب (معدلة - صورة دائرية بتلميع وإطار ذهبي) =============
 def send_role_card(reply_token, name, profile_pic, role):
-    bg_url = "https://i.imgur.com/SAqlVNr.gif  "
+    bg_url = "https://i.imgur.com/SAqlVNr.gif"  # ✅ تم حذف المسافة الزائدة
 
     flex = FlexSendMessage(
         alt_text="🎉 بطاقتك الرسمية!",
@@ -244,7 +244,7 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                 "contents": [
                     {
                         "type": "image",
-                        "url": "https://i.imgur.com/SAqlVNr.gif  ",
+                        "url": "https://i.imgur.com/SAqlVNr.gif",  # ✅ حذف المسافة
                         "size": "full",
                         "aspectMode": "cover",
                         "position": "absolute",
@@ -402,7 +402,7 @@ def send_raffle_card(reply_token, group_id):
                 "contents": [
                     {
                         "type": "image",
-                        "url": "https://i.imgur.com/SAqlVNr.gif  ",
+                        "url": "https://i.imgur.com/SAqlVNr.gif",  # ✅ حذف المسافة
                         "size": "full",
                         "aspectMode": "cover",
                         "position": "absolute",
@@ -580,9 +580,9 @@ def handle_message(event):
         try:
             profile = line_bot_api.get_profile(uid)
             mentioner_name = profile.display_name
-            mentioner_pic = profile.picture_url or "https://i.imgur.com/SAqlVNr.gif  "
+            mentioner_pic = profile.picture_url or "https://i.imgur.com/SAqlVNr.gif"  # ✅ حذف المسافة
         except:
-            mentioner_name, mentioner_pic = "عضو مجهول", "https://i.imgur.com/SAqlVNr.gif  "
+            mentioner_name, mentioner_pic = "عضو مجهول", "https://i.imgur.com/SAqlVNr.gif"  # ✅ حذف المسافة
         send_admin_mention_card(event.reply_token, mentioner_name, mentioner_pic)
         return
 
@@ -624,7 +624,7 @@ def handle_message(event):
         participants = raffle_participants.get(group_id, set())
         if not participants:
             line_bot_api.reply_message(event.reply_token,
-                TextSendMessage(text="📭 مافيه أحد مسجل!"))
+                TextSendMessage(text=".FileNotFoundException: الملف غير موجود 😏"))
             return
         names = [raffle_names.get(uid, "عضو مجهول") for uid in participants]
         message = "📋 قائمة المسجلين:\n" + "\n".join(f"• {name}" for name in names)
@@ -690,9 +690,9 @@ def handle_message(event):
             try:
                 profile = line_bot_api.get_profile(uid)
                 name = profile.display_name
-                pic  = profile.picture_url or "https://i.imgur.com/SAqlVNr.gif  "
+                pic  = profile.picture_url or "https://i.imgur.com/SAqlVNr.gif"  # ✅ حذف المسافة
             except:
-                name, pic = "عضو مجهول", "https://i.imgur.com/SAqlVNr.gif  "
+                name, pic = "عضو مجهول", "https://i.imgur.com/SAqlVNr.gif"  # ✅ حذف المسافة
             role = random.choice(ROLES)
             user_roles[uid] = role
             send_role_card(event.reply_token, name, pic, role)
