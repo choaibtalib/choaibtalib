@@ -35,7 +35,7 @@ ROLES = [
     "🍵 صانع الشاي البارد", "🎷 عازف الساكسفون الصارخ", "🕵️ جاسوس الملك المتنكر", "🧙‍♀️ عراف المملكة المخطئ",
     "🌠 ملتقط النجوم المتساقطة", "🛡️ حارس القصر المتهدم", "🥨 صانع المعجنات المجمدة", "💃 راقص البلاط المتعب",
     "🪓 قاطع الأشجار الميتة", "🎳 بطل البولينج المفقود", "🎤 مغني الساحة المجهول", "📜 كاتب الأسرار المكشوفة",
-    "🏆 حامل الجوائز المزيفة", "🍗 مشوي الدواجن الفاسدة", "🧞 جني المصباح المكسور", "🎺 منشد البلاط الصاخب",
+    "🏆 حامل الجوائز المزيفة", "🍗 مشوي الدواجن الفاسدة", " genie المصباح المكسور", "🎺 منشد البلاط الصاخب",
     "🥘 طباخ الملكة المتسلطة", "🌊 ساحر الماء الملوث", "🔥 ساحر النار المطفأة", "❄️ ساحر الثلج الذائب",
     "⚡ ساحر البرق المتقطع", "🚨 ناقوس الخطر الكاذب", "🧩 صانع الألغاز الغامضة", "🏇 فارس الصيد المفقود",
     "🚲 ساعي البريد البطيء", "🪔 حافظ النور المطفأ", "🕺 راقص القصر المتعب", "🔮 قارئ الطالع الغامض",
@@ -68,9 +68,23 @@ raffle_active = {}      # group_id -> bool
 raffle_participants = {}  # group_id -> set of user_ids
 raffle_names = {}         # user_id -> display_name
 
+# ===== متغيرات لعبة الجائزة السرية =====
+secret_game_active = {}      # group_id -> bool
+secret_participants = {}     # group_id -> list of names
+donors_list = [
+    "أحمد", "سارة", "محمد", "فاطمة", "خالد", "نورا", "سليمان", "منى", "ليلى", "عمر",
+    "مريم", "بدر", "نادية", "فهد", "نور", "رانيا", "أمينة", "رائد", "هيا", "ياسر"
+]
+prizes_list = [
+    "سيارة فاخرة", "رحلة إلى بالي", "جهاز آيفون 15", "جهاز لابتوب متطور", "هدايا بقيمة 1000 دولار",
+    "جهاز تابلت", "كوبون شراء", "كأس ذهبي", "ساعة فاخرة", "رحلة سياحية إلى تايلاند",
+    "هدايا مالية", "حقيبة ماركة", "جهاز تلفاز 65 بوصة", "رحلة إلى دبي", "مكثى فاخر",
+    "جهاز ألعاب", "حقيبة سفر", "ساعة ذكية", "بطاقة هدايا", "كعكة عيد ملكية"
+]
+
 # ============= دالة بطاقة المناصب (معدلة - صورة دائرية بتلميع وإطار ذهبي) =============
 def send_role_card(reply_token, name, profile_pic, role):
-    bg_url = "https://i.imgur.com/SAqlVNr.gif"
+    bg_url = "https://i.imgur.com/SAqlVNr.gif  "
 
     flex = FlexSendMessage(
         alt_text="🎉 بطاقتك الرسمية!",
@@ -230,7 +244,7 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                 "contents": [
                     {
                         "type": "image",
-                        "url": "https://i.imgur.com/SAqlVNr.gif",
+                        "url": "https://i.imgur.com/SAqlVNr.gif  ",
                         "size": "full",
                         "aspectMode": "cover",
                         "position": "absolute",
@@ -388,7 +402,7 @@ def send_raffle_card(reply_token, group_id):
                 "contents": [
                     {
                         "type": "image",
-                        "url": "https://i.imgur.com/SAqlVNr.gif",
+                        "url": "https://i.imgur.com/SAqlVNr.gif  ",
                         "size": "full",
                         "aspectMode": "cover",
                         "position": "absolute",
@@ -547,6 +561,7 @@ def callback():
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     global game_active, raffle_active, raffle_participants, raffle_names
+    global secret_game_active, secret_participants
     text = event.message.text.strip()
     uid  = event.source.user_id
     source = event.source
@@ -565,9 +580,9 @@ def handle_message(event):
         try:
             profile = line_bot_api.get_profile(uid)
             mentioner_name = profile.display_name
-            mentioner_pic = profile.picture_url or "https://i.imgur.com/SAqlVNr.gif"
+            mentioner_pic = profile.picture_url or "https://i.imgur.com/SAqlVNr.gif  "
         except:
-            mentioner_name, mentioner_pic = "عضو مجهول", "https://i.imgur.com/SAqlVNr.gif"
+            mentioner_name, mentioner_pic = "عضو مجهول", "https://i.imgur.com/SAqlVNr.gif  "
         send_admin_mention_card(event.reply_token, mentioner_name, mentioner_pic)
         return
 
@@ -597,8 +612,8 @@ def handle_message(event):
                 TextSendMessage(text="❌ هذا الأمر فقط للمجموعات."))
             return
 
-    # 🎯 لعبة القرعة - بدء التسجيل
-    if text.lower() == ".r" and group_id:
+    # 🎯 لعبة القرعة - بدء التسجيل (Admin فقط)
+    if text.lower() == ".r" and group_id and uid == ADMIN_USER_ID:
         raffle_active[group_id] = True
         raffle_participants[group_id] = set()
         send_raffle_card(event.reply_token, group_id)
@@ -621,7 +636,7 @@ def handle_message(event):
         participants = raffle_participants.get(group_id, set())
         if not participants:
             line_bot_api.reply_message(event.reply_token,
-                TextSendMessage(text="📭 مافيه أحد مسجل!"))
+                TextSendMessage(text=".FileNotFoundException: الملف غير موجود 😏"))
             return
         winner_id = random.choice(list(participants))
         winner_name = raffle_names.get(winner_id, "الفائز المجهول")
@@ -675,13 +690,77 @@ def handle_message(event):
             try:
                 profile = line_bot_api.get_profile(uid)
                 name = profile.display_name
-                pic  = profile.picture_url or "https://i.imgur.com/SAqlVNr.gif"
+                pic  = profile.picture_url or "https://i.imgur.com/SAqlVNr.gif  "
             except:
-                name, pic = "عضو مجهول", "https://i.imgur.com/SAqlVNr.gif"
+                name, pic = "عضو مجهول", "https://i.imgur.com/SAqlVNr.gif  "
             role = random.choice(ROLES)
             user_roles[uid] = role
             send_role_card(event.reply_token, name, pic, role)
             return
+
+    # ====================== لعبة الجائزة السرية ======================
+
+    # 🎁 بدء لعبة الجائزة السرية (Admin فقط)
+    if text.lower() == ".sg" and group_id and uid == ADMIN_USER_ID:
+        secret_game_active[group_id] = True
+        secret_participants[group_id] = []
+        line_bot_api.reply_message(event.reply_token,
+            TextSendMessage(text="🎁 بدأت لعبة الجائزة السرية! اكتب `.sr` لتسجيل اسمك."))
+        return
+
+    # 📝 تسجيل في الجائزة السرية
+    if text.lower() == ".sr" and group_id:
+        if not secret_game_active.get(group_id, False):
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text="❌ اللعبة مغلقة حاليًا."))
+            return
+
+        try:
+            profile = line_bot_api.get_profile(uid)
+            name = profile.display_name
+        except:
+            name = "عضو مجهول"
+
+        if name in secret_participants.get(group_id, []):
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text="✅ أنت مسجل مسبقًا!"))
+            return
+
+        secret_participants[group_id].append(name)
+        line_bot_api.reply_message(event.reply_token,
+            TextSendMessage(text=f"✅ تم تسجيلك: {name} 🎁"))
+        return
+
+    # 📋 عرض المشاركين في الجائزة السرية
+    if text.lower() == ".srr" and group_id:
+        participants = secret_participants.get(group_id, [])
+        if not participants:
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text=".FileNotFoundException: الملف غير موجود 😏"))
+            return
+        message = "📋 المشاركين:\n" + "\n".join(f"• {name}" for name in participants)
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=message))
+        return
+
+    # 🏆 اختيار الفائز في الجائزة السرية
+    if text.lower() == ".ss" and group_id:
+        participants = secret_participants.get(group_id, [])
+        if not participants:
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text=".FileNotFoundException: الملف غير موجود 😏"))
+            return
+
+        winner = random.choice(participants)
+        prize = random.choice(prizes_list)
+        donor = random.choice(donors_list)
+
+        message = f"🎉 مبروك يا {winner}! لقد فزت بـ {prize} مقدمة من {donor} 🎁👑"
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=message))
+
+        # إعادة ضبط اللعبة
+        secret_game_active.pop(group_id, None)
+        secret_participants.pop(group_id, None)
+        return
 
 # ============= نقطة التشغيل =============
 if __name__ == "__main__":
