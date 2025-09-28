@@ -3,3 +3,4 @@ python-dotenv
 line-bot-sdk
 gunicorn
 APScheduler
+pytz
