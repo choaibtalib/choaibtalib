@@ -1,57 +1,34 @@
 # -*- coding: utf-8 -*-
-import os
-import random
-import traceback
-from flask import Flask, request, abort, jsonify
+import os, random
+from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
-from linebot.exceptions import InvalidSignatureError, LineBotApiError
+from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
     MessageEvent, TextMessage, FlexSendMessage, TextSendMessage,
     FollowEvent, MemberJoinedEvent, MemberLeftEvent
 )
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.jobstores.base import ConflictingIdError
 import atexit
-import logging
-from datetime import datetime
-import pytz
 
-# ----------- تهيئة السجل -----------
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger(__name__)
-
-# ----------- تطبيق Flask -----------
 app = Flask(__name__)
 
-# ===== متغيرات البيئة (لم يتم تغيير أسماء المتغيرات) =====
+# ===== متغيرات البيئة =====
 CHANNEL_ACCESS_TOKEN = os.environ.get("CHANNEL_ACCESS_TOKEN")
 CHANNEL_SECRET       = os.environ.get("CHANNEL_SECRET")
 ADMIN_USER_ID        = os.environ.get("ADMIN_USER_ID")
 
-# اختياري: رمز سري لمسار تشغيل التذكير عن طريق HTTP (لو حبيت تضيف للـRender cron)
-# إذا لم تقم بتعيين INTERNAL_TRIGGER_TOKEN فالمسار سيفتح بدون مصادقة.
-INTERNAL_TRIGGER_TOKEN = os.environ.get("INTERNAL_TRIGGER_TOKEN")
-
-# اختر المنطقة الزمنية المناسبة (افتراضي Africa/Algiers كما طلبت في إعداداتك)
-SCHEDULER_TIMEZONE = os.environ.get("SCHEDULER_TIMEZONE", "Africa/Algiers")
-
-# تحقق من متغيرات هامة
-if not CHANNEL_ACCESS_TOKEN or not CHANNEL_SECRET:
-    logger.warning("تحذير: CHANNEL_ACCESS_TOKEN أو CHANNEL_SECRET غير معرّفة - تأكد من إعداد متغيرات البيئة.")
-
-# ===== تهيئة LINE SDK =====
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
 handler      = WebhookHandler(CHANNEL_SECRET)
 
-# ===== قائمة المناصب المضحكة (لم أغيرها) =====
+# ===== قائمة المناصب المضحكة =====
 ROLES = [
     "👑 زعيم المطبخ", "🌾 مزارع البطاطس", "🍳 طباخ فطير الصبح", "🐒 مدير القرود",
-    "🍳 اكل الوجبات الشره ", "🪄 ساحر التلفاز", "⚔️ قائد السجاد الطائر", "🧩 محلل الألغاز المزدحمة",
+    "🕊️ مربي الحمام الزاجل", "🪄 ساحر التلفاز", "⚔️ قائد السجاد الطائر", "🧩 محلل الألغاز المزدحمة",
     "🚀 حارس الفضاء الخارجي", "🎨 رسام الوجوه الغريبة", "💎 حارس الخواتم المصنوعة في الصين", "🥁 عازف الطبول الصراخية",
     "🌋 مراقب البراكين النائمة", "🐴 فارس السرج البلاستيكي", "🥳 منظم أعياد الميلاد المتعبة", "🧙 ساحر الظلال المتدلية",
     "🍞 خباز الكعك المتفجر", "🐘 مروض الفيلة الصغيرة", "🕰️ حارس الزمن المكسور", "📖 راوي القصص المللقة",
     "🥷 نينجا الظلال الملونة", "💡 مخترع المصباح الغازي", "🎯 بطل النبال المفقود", "🧼 صانع الصابون العطري",
-    " violin عازف الكمان المكسور", "🌌 عالم النجوم المغمورة", "🍯 صانع العسل الحامض", "🧵 خياط الستائر",
+    "🎻 عازف الكمان المكسور", "🌌 عالم النجوم المغمورة", "🍯 صانع العسل الحامض", "🧵 خياط الستائر",
     "🚒 مطفئ الحرائق المبلل", "🎭 ممثل البلاط المتقاعد", "🪆 جامع الدمى المكسورة", "🐝 مربي النحل العاطل",
     "🍹 خبير العصائر المجمدة", "🎩 سيد الألغاز المربكة", "🪖 جندي الحدود النائمة", "🐀 صائد الجرذان الأنيق",
     "🎮 لاعب محترف في النوم", "🥩 قصاب القصر المتخلف", "🧃 موزع العصير المغلق", "📦 مدير المخازن الفارغة",
@@ -77,12 +54,11 @@ ROLES = [
     "🎭 ممثل الكوميديا البائسة", "🧼 ملك الصابون الفارغ", "👑 زعيم السبات", "🎭 ممثل الفيلم الوهمي",
     "😴 سلطان النعاس", "🤥 سيد الأكاذيب", "👑 ملك الكسل", "🎭 ممثل المأساة الفاشلة",
     "🎭 ممثل الفرح المفقود", "👑 زعيم الضحكة المتعبة", "🎭 ممثل الحزن المبالغ فيه", "👑 ملك التفاهة",
-    "🎭 ممثل الغضب المفقود", "👑 زعيم البكاء المبالغ فيه", "🎭 ممثل الغباء المستغبى", "👑 ملك الغباء الراقي",
+    "🎭 ممثل الغضب المفقود", "👑 زعيم البكاء المبالغ فيه", "🎭 ممثل الخوف المتخيل", "👑 ملك الغباء الراقي",
     "🎭 ممثل الحب المفقود", "👑 زعيم العشق المتعب", "🎭 ممثل الحقد المفقود", "👑 ملك الكراهية المبالغ فيها",
     "🎭 ممثل الغيرة المتخيلة", "👑 زعيم الحسد المفقود", "🎭 ممثل الكآبة المبالغ فيها", "👑 ملك الفرح المفقود"
 ]
 
-# ===== متغيرات حالة البوت في الذاكرة (كما في كودك) =====
 game_active = False
 user_roles = {}  # تخزين مناصب المستخدمين
 known_groups = set()  # ✅ تخزين معرفات المجموعات اللي دخلها البوت
@@ -96,19 +72,23 @@ raffle_names = {}         # user_id -> display_name
 secret_game_active = {}      # group_id -> bool
 secret_participants = {}     # group_id -> list of names
 donors_list = [
-    "فازلين", "سارة", "الامريكي", "حنين", "رونالدو", "نورا", "أريام", "منى", "ليلى", "عمر الكرد",
-    "مريم", "قلق", "مهجد", "معطاب", "نور", "رانيا", "نينجا", "ابو ليلى لي أكلها الذئب", "الخديوي", "قطام", "عود" ,"هبايب", "الاسطوره", "عاشور", "دندان"
+    "أحمد", "سارة", "محمد", "فاطمة", "خالد", "نورا", "سليمان", "منى", "ليلى", "عمر",
+    "مريم", "بدر", "نادية", "فهد", "نور", "رانيا", "أمينة", "رائد", "هيا", "ياسر"
 ]
 prizes_list = [
-    "سيارة ورديه للحلوات", "رحلة إلى الغابة مع التماسيح", "جهاز آيفون الترا22", "جهاز لابتوب من تايلند", "بطاطس المراعي",
-    "جهاز تابلت", "مساج ", "كأس ذهبي", "ساعة فاخرة", "ثلاثيني",
-    "كرسي طويل", "حقيبة من جاد الكوالا", "عندو كهربائي ", "رحلة إلى بيت جدة ليلى", "مقص فاخر",
-    "برج الاسد", "علبه فازلين للبشره", "سروال قصير", "خوخه ", "كيكه  "
+    "سيارة فاخرة", "رحلة إلى بالي", "جهاز آيفون 15", "جهاز لابتوب متطور", "هدايا بقيمة 1000 دولار",
+    "جهاز تابلت", "كوبون شراء", "كأس ذهبي", "ساعة فاخرة", "رحلة سياحية إلى تايلاند",
+    "هدايا مالية", "حقيبة ماركة", "جهاز تلفاز 65 بوصة", "رحلة إلى دبي", "مكثى فاخر",
+    "جهاز ألعاب", "حقيبة سفر", "ساعة ذكية", "بطاقة هدايا", "كعكة عيد ملكية"
 ]
 
-# ----------- دوال المساعدة الخاصة بالـFlex (لم أغيّر التصميم) -----------
+# ===== متغيرات مراقبة الدخول =====
+lurking_active = {}  # group_id -> bool
+lurkers_list = {}    # group_id -> list of names
+
+# ============= دالة بطاقة المناصب (معدلة - صورة دائرية بتلميع وإطار ذهبي) =============
 def send_role_card(reply_token, name, profile_pic, role):
-    bg_url = "https://i.imgur.com/SAqlVNr.gif"
+    bg_url = "https://i.imgur.com/SAqlVNr.gif"  # ✅ تم حذف المسافة
 
     flex = FlexSendMessage(
         alt_text="🎉 بطاقتك الرسمية!",
@@ -253,12 +233,9 @@ def send_role_card(reply_token, name, profile_pic, role):
             }
         }
     )
-    try:
-        line_bot_api.reply_message(reply_token, flex)
-    except LineBotApiError as e:
-        logger.error("Failed to send role card: %s", e)
-        logger.debug(traceback.format_exc())
+    line_bot_api.reply_message(reply_token, flex)
 
+# ============= دالة بطاقة المنشن (معدلة - صورة بتلميع + إيموجيات ملكية) =============
 def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
     flex = FlexSendMessage(
         alt_text="✨ عاشور مشغول الحين!",
@@ -271,7 +248,7 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                 "contents": [
                     {
                         "type": "image",
-                        "url": "https://i.imgur.com/SAqlVNr.gif",
+                        "url": "https://i.imgur.com/SAqlVNr.gif",  # ✅ حذف المسافة
                         "size": "full",
                         "aspectMode": "cover",
                         "position": "absolute",
@@ -414,12 +391,9 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
             }
         }
     )
-    try:
-        line_bot_api.reply_message(reply_token, flex)
-    except LineBotApiError as e:
-        logger.error("Failed to send admin mention card: %s", e)
-        logger.debug(traceback.format_exc())
+    line_bot_api.reply_message(reply_token, flex)
 
+# ============= دالة بطاقة تسجيل القرعة (معدلة - زر أسود) =============
 def send_raffle_card(reply_token, group_id):
     flex = FlexSendMessage(
         alt_text="🎯 سجّل في القرعة!",
@@ -432,7 +406,7 @@ def send_raffle_card(reply_token, group_id):
                 "contents": [
                     {
                         "type": "image",
-                        "url": "https://i.imgur.com/SAqlVNr.gif",
+                        "url": "https://i.imgur.com/SAqlVNr.gif",  # ✅ حذف المسافة
                         "size": "full",
                         "aspectMode": "cover",
                         "position": "absolute",
@@ -486,7 +460,7 @@ def send_raffle_card(reply_token, group_id):
                                     "text": "سجلني"
                                 },
                                 "style": "primary",
-                                "color": "#000000",
+                                "color": "#000000",  # ✅ لون أسود الآن
                                 "margin": "xl"
                             },
                             {
@@ -510,149 +484,100 @@ def send_raffle_card(reply_token, group_id):
             }
         }
     )
-    try:
-        line_bot_api.reply_message(reply_token, flex)
-    except LineBotApiError as e:
-        logger.error("Failed to send raffle card: %s", e)
-        logger.debug(traceback.format_exc())
+    line_bot_api.reply_message(reply_token, flex)
 
-# ============= دالة إرسال تذكير الصلاة على النبي ﷺ ============
+# ============= دالة إرسال تذكير الصلاة على النبي ﷺ =============
 def send_prayer_reminder():
-    """ترسل رسالة تذكير إلى كل المجموعات في known_groups.
-       يُنادى عليها داخليًا من الجدولة أو من مسار HTTP /run_prayer_reminder
-    """
     if not known_groups:
-        logger.info("لا توجد مجموعات مسجلة لإرسال التذكير. (known_groups فارغة)")
-        # كخيار بديل: لو أردت إرسال broadcast عندما لا توجد مجموعات:
-        # try:
-        #     line_bot_api.broadcast(TextSendMessage(text="📿 ..."))
-        # except Exception as e:
-        #     logger.error("Broadcast failed: %s", e)
-        return {"status": "no_groups"}
+        print("لا توجد مجموعات مسجلة لإرسال التذكير.")
+        return
 
-    text = "📿 اللهم صلِّ على محمد 🌹\nاللهم صلِّ وسلم وبارك على نبينا محمد ﷺ\n\n⏰ تذكير من بوت المجموعة"
-    message = TextSendMessage(text=text)
+    message = TextSendMessage(text="📿 اللهم صلِّ على محمد 🌹\nاللهم صلِّ وسلم وبارك على نبينا محمد ﷺ")
 
-    results = {"sent": [], "failed": []}
-    for group_id in list(known_groups):
+    for group_id in known_groups:
         try:
             line_bot_api.push_message(group_id, message)
-            logger.info("تم إرسال تذكير الصلاة على النبي إلى المجموعة: %s", group_id)
-            results["sent"].append(group_id)
-        except LineBotApiError as e:
-            logger.error("فشل إرسال التذكير إلى %s : %s", group_id, e)
-            logger.debug(traceback.format_exc())
-            results["failed"].append({"group_id": group_id, "error": str(e)})
+            print(f"تم إرسال تذكير الصلاة على النبي إلى المجموعة: {group_id}")
         except Exception as e:
-            logger.error("خطأ غير متوقع عند إرسال التذكير إلى %s : %s", group_id, e)
-            logger.debug(traceback.format_exc())
-            results["failed"].append({"group_id": group_id, "error": str(e)})
+            print(f"فشل إرسال التذكير إلى {group_id}: {e}")
 
-    return results
+# ============= إعداد الجدولة =============
+scheduler = BackgroundScheduler()
+scheduler.add_job(func=send_prayer_reminder, trigger="interval", hours=1)
+scheduler.start()
 
-# ============= إعداد الجدولة باستخدام APScheduler ============
-scheduler = BackgroundScheduler(timezone=SCHEDULER_TIMEZONE)
+# إيقاف الجدولة عند إغلاق التطبيق
+atexit.register(lambda: scheduler.shutdown())
 
-def start_scheduler():
-    try:
-        # نجرب إضافة مهمة واحدة بمعرف ثابت لتجنب إضافة مكررة
-        scheduler.add_job(send_prayer_reminder, 'interval', hours=1, id="prayer_reminder_hourly", replace_existing=True)
-        scheduler.start()
-        logger.info("Scheduler started (timezone=%s).", SCHEDULER_TIMEZONE)
-    except ConflictingIdError:
-        logger.warning("Job with same id already exists.")
-    except Exception as e:
-        logger.error("Failed to start scheduler: %s", e)
-        logger.debug(traceback.format_exc())
-
-# تأكد من إيقاف scheduler عند انتهاء التطبيق
-atexit.register(lambda: scheduler.shutdown(wait=False))
-
-# محاولة تشغيل الـ scheduler عند تحميل الموديل (لن يعمل إن نام السيرفر — لذلك أضفنا مسار HTTP للـcron)
-try:
-    start_scheduler()
-except Exception as e:
-    logger.error("Error starting scheduler on import: %s", e)
-
-# ============= معالجة دخول البوت للمجموعة ============
+# ============= معالجة دخول البوت للمجموعة =============
 @handler.add(FollowEvent)
 def handle_follow(event):
     source = event.source
-    # عند إضافته كمستخدم أو كمجموعة
-    try:
-        if hasattr(source, 'group_id') and source.group_id:
-            known_groups.add(source.group_id)
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="شكرًا على الإضافة 🎉👑"))
-    except Exception as e:
-        logger.error("handle_follow error: %s", e)
-        logger.debug(traceback.format_exc())
+    if hasattr(source, 'group_id') and source.group_id:
+        known_groups.add(source.group_id)
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="شكرًا على الإضافة 🎉👑")
+        )
 
-# ============= معالجة دخول عضو جديد ============
+# ============= معالجة دخول عضو جديد =============
 @handler.add(MemberJoinedEvent)
 def handle_member_joined(event):
-    for member in event.joined.members:
-        try:
-            profile = line_bot_api.get_profile(member.user_id)
-            name = profile.display_name
-        except Exception:
-            name = "عضو جديد"
-        try:
-            line_bot_api.push_message(event.source.group_id, TextSendMessage(text=f"مرحبًا {name} 🎊👑"))
-            # تأكد من تسجيل الـ group id
-            if hasattr(event.source, 'group_id') and event.source.group_id:
-                known_groups.add(event.source.group_id)
-        except Exception as e:
-            logger.error("Error sending welcome message: %s", e)
-            logger.debug(traceback.format_exc())
+    source = event.source
+    if hasattr(source, 'group_id') and source.group_id:
+        group_id = source.group_id
+        # ✅ تحقق: هل المراقبة مفعلة في هذه المجموعة؟
+        if not lurking_active.get(group_id, False):
+            return
 
-# ============= معالجة خروج عضو ============
+        for member in event.joined.members:
+            try:
+                profile = line_bot_api.get_profile(member.user_id)
+                name = profile.display_name
+            except:
+                name = "عضو جديد"
+
+            # ✅ أضف إلى قائمة المراقبين
+            if group_id not in lurkers_list:
+                lurkers_list[group_id] = []
+            if name not in lurkers_list[group_id]:
+                lurkers_list[group_id].append(name)
+
+            # ✅ رسالة درامية
+            message = f"🚨 {name} متصل الآن! \n✨ انتبهوا، هذي المجموعة صارت أخطر! \n👑 من يجرؤ يتحدى؟"
+
+            line_bot_api.push_message(
+                group_id,
+                TextSendMessage(text=message)
+            )
+
+# ============= معالجة خروج عضو =============
 @handler.add(MemberLeftEvent)
 def handle_member_left(event):
     for member in event.left.members:
         try:
             profile = line_bot_api.get_profile(member.user_id)
             name = profile.display_name
-        except Exception:
+        except:
             name = "عضو"
-        try:
-            line_bot_api.push_message(event.source.group_id, TextSendMessage(text=f"وداعًا {name} 😢👑"))
-        except Exception as e:
-            logger.error("Error sending left message: %s", e)
-            logger.debug(traceback.format_exc())
+        # ✅ إرسال وداع في نفس المجموعة
+        line_bot_api.push_message(
+            event.source.group_id,
+            TextSendMessage(text=f"وداعًا {name} 😢👑")
+        )
 
-# ============= Webhook نقطة النهاية من LINE ============
+# ============= نقطة الـ Webhook =============
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers.get('X-Line-Signature', '')
     body = request.get_data(as_text=True)
-    logger.info("Request body: %s", body[:500])
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
-        logger.warning("Invalid signature.")
         abort(400)
-    except Exception as e:
-        logger.error("Error handling webhook: %s", e)
-        logger.debug(traceback.format_exc())
-        # لا نعيد 500 لأن LINE يتوقع 200/400 بشكل نموذجي
-        abort(500)
     return 'OK'
 
-# ============= نقطة تشغيل التذكير عبر HTTP (لإستدعاء Cron خارجي مثل Render Cron Jobs) ============
-@app.route("/run_prayer_reminder", methods=['GET', 'POST'])
-def http_run_prayer_reminder():
-    # حماية اختيارية:
-    token = request.headers.get("X-Internal-Token") or request.args.get("token")
-    if INTERNAL_TRIGGER_TOKEN:
-        if not token or token != INTERNAL_TRIGGER_TOKEN:
-            logger.warning("Unauthorized attempt to trigger reminder via HTTP.")
-            return jsonify({"error": "Unauthorized"}), 401
-
-    logger.info("HTTP trigger received for prayer reminder (by %s)", request.remote_addr)
-    result = send_prayer_reminder()
-    return jsonify({"status": "ok", "result": result})
-
-# ============= معالجة الرسائل ============
+# ============= معالجة الرسائل =============
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     global game_active, raffle_active, raffle_participants, raffle_names
@@ -675,202 +600,216 @@ def handle_message(event):
         try:
             profile = line_bot_api.get_profile(uid)
             mentioner_name = profile.display_name
-            mentioner_pic = profile.picture_url or "https://i.imgur.com/SAqlVNr.gif"
-        except Exception:
-            mentioner_name, mentioner_pic = "عضو مجهول", "https://i.imgur.com/SAqlVNr.gif"
+            mentioner_pic = profile.picture_url or "https://i.imgur.com/SAqlVNr.gif"  # ✅ حذف المسافة
+        except:
+            mentioner_name, mentioner_pic = "عضو مجهول", "https://i.imgur.com/SAqlVNr.gif"  # ✅ حذف المسافة
         send_admin_mention_card(event.reply_token, mentioner_name, mentioner_pic)
         return
 
-    # الأوامر الأخرى — بدون أي تغيير لكن مع بعض الحماية/تحسينات الأخطاء
-    try:
-        if text.lower() == ".g" and uid == ADMIN_USER_ID:
-            game_active = True
+    # الأوامر الأخرى — بدون أي تغيير
+    if text.lower() == ".g" and uid == ADMIN_USER_ID:
+        game_active = True
+        line_bot_api.reply_message(event.reply_token,
+            TextSendMessage(text="🎮 تم تشغيل لعبة المناصب للجميع!"))
+        return
+
+    if text.lower() == ".stop" and uid == ADMIN_USER_ID:
+        game_active = False
+        user_roles.clear()
+        line_bot_api.reply_message(event.reply_token,
+            TextSendMessage(text="⏹️ تم إيقاف لعبة المناصب وتجديدها!"))
+        return
+
+    # 🚪 أمر مغادرة المجموعة — فقط للأدمن
+    if text.lower() == ".leave" and uid == ADMIN_USER_ID:
+        if group_id:
             line_bot_api.reply_message(event.reply_token,
-                TextSendMessage(text="🎮 تم تشغيل لعبة المناصب للجميع!"))
+                TextSendMessage(text="وداعًا 👋👑"))
+            line_bot_api.leave_group(group_id)
             return
-
-        if text.lower() == ".stop" and uid == ADMIN_USER_ID:
-            game_active = False
-            user_roles.clear()
+        else:
             line_bot_api.reply_message(event.reply_token,
-                TextSendMessage(text="⏹️ تم إيقاف لعبة المناصب وتجديدها!"))
+                TextSendMessage(text="❌ هذا الأمر فقط للمجموعات."))
             return
 
-        if text.lower() == ".leave" and uid == ADMIN_USER_ID:
-            if group_id:
-                line_bot_api.reply_message(event.reply_token,
-                    TextSendMessage(text="وداعًا 👋👑"))
-                line_bot_api.leave_group(group_id)
-                # إزالة من known_groups عند مغادرة البوت
-                known_groups.discard(group_id)
-                return
-            else:
-                line_bot_api.reply_message(event.reply_token,
-                    TextSendMessage(text="❌ هذا الأمر فقط للمجموعات."))
-                return
+    # 🎯 لعبة القرعة - بدء التسجيل (Admin فقط)
+    if text.lower() == ".r" and group_id and uid == ADMIN_USER_ID:
+        raffle_active[group_id] = True
+        raffle_participants[group_id] = set()
+        send_raffle_card(event.reply_token, group_id)
+        return
 
-        if text.lower() == ".r" and group_id and uid == ADMIN_USER_ID:
-            raffle_active[group_id] = True
-            raffle_participants[group_id] = set()
-            send_raffle_card(event.reply_token, group_id)
-            # تأكد من تسجيل المجموعه
-            known_groups.add(group_id)
-            return
-
-        if text.lower() == ".rr" and group_id:
-            participants = raffle_participants.get(group_id, set())
-            if not participants:
-                line_bot_api.reply_message(event.reply_token,
-                    TextSendMessage(text=".FileNotFoundException: الملف غير موجود 😏"))
-                return
-            names = [raffle_names.get(uid, "عضو مجهول") for uid in participants]
-            message = "📋 قائمة المسجلين:\n" + "\n".join(f"• {name}" for name in names)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=message))
-            return
-
-        if text.lower() == ".rs" and group_id:
-            participants = raffle_participants.get(group_id, set())
-            if not participants:
-                line_bot_api.reply_message(event.reply_token,
-                    TextSendMessage(text=".FileNotFoundException: الملف غير موجود 😏"))
-                return
-            winner_id = random.choice(list(participants))
-            winner_name = raffle_names.get(winner_id, "الفائز المجهول")
+    # 📋 لعبة القرعة - عرض القائمة
+    if text.lower() == ".rr" and group_id:
+        participants = raffle_participants.get(group_id, set())
+        if not participants:
             line_bot_api.reply_message(event.reply_token,
-                TextSendMessage(text=f"🎉🎉🎉\nالفائز هو: {winner_name} 🏆👑\nمبروك!"))
-            raffle_active.pop(group_id, None)
-            raffle_participants.pop(group_id, None)
+                TextSendMessage(text=".FileNotFoundException: الملف غير موجود 😏"))
+            return
+        names = [raffle_names.get(uid, "عضو مجهول") for uid in participants]
+        message = "📋 قائمة المسجلين:\n" + "\n".join(f"• {name}" for name in names)
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=message))
+        return
+
+    # 🎁 لعبة القرعة - اختيار فائز
+    if text.lower() == ".rs" and group_id:
+        participants = raffle_participants.get(group_id, set())
+        if not participants:
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text=".FileNotFoundException: الملف غير موجود 😏"))
+            return
+        winner_id = random.choice(list(participants))
+        winner_name = raffle_names.get(winner_id, "الفائز المجهول")
+        line_bot_api.reply_message(event.reply_token,
+            TextSendMessage(text=f"🎉🎉🎉\nالفائز هو: {winner_name} 🏆👑\nمبروك!"))
+        # ✅ إعادة ضبط اللعبة لهذه المجموعة فقط
+        raffle_active.pop(group_id, None)
+        raffle_participants.pop(group_id, None)
+        return
+
+    # ✅ تسجيل في القرعة — مع تحسينات
+    if text == "سجلني" and group_id:
+        # ✅ التحقق: هل اللعبة مفعلة في هذه المجموعة؟
+        if not raffle_active.get(group_id, False):
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text="❌ التسجيل مغلق حاليًا. انتظر الجولة القادمة!"))
             return
 
-        if text == "سجلني" and group_id:
-            if not raffle_active.get(group_id, False):
-                line_bot_api.reply_message(event.reply_token,
-                    TextSendMessage(text="❌ التسجيل مغلق حاليًا. انتظر الجولة القادمة!"))
-                return
+        # ✅ التحقق: هل العضو مسجل مسبقًا؟
+        if uid in raffle_participants.get(group_id, set()):
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text="✅ أنت مسجل مسبقًا! ما يلزم تسجيل مرتين 😊"))
+            return
 
-            if uid in raffle_participants.get(group_id, set()):
-                line_bot_api.reply_message(event.reply_token,
-                    TextSendMessage(text="✅ أنت مسجل مسبقًا! ما يلزم تسجيل مرتين 😊"))
-                return
+        # ✅ تسجيل العضو
+        try:
+            profile = line_bot_api.get_profile(uid)
+            name = profile.display_name
+        except:
+            name = "عضو مجهول"
 
+        raffle_participants.setdefault(group_id, set()).add(uid)
+        raffle_names[uid] = name
+        line_bot_api.reply_message(event.reply_token,
+            TextSendMessage(text=f"✅ تم تسجيلك: {name} 🎯"))
+
+        # ✅ إشعار لطيف بعد 3 تسجيلات
+        if len(raffle_participants[group_id]) % 3 == 0 and len(raffle_participants[group_id]) > 0:
+            line_bot_api.push_message(group_id,
+                TextSendMessage(text=f"🎯 {len(raffle_participants[group_id])} شخص سجلوا حتى الآن! من يجرؤ ينافس؟"))
+
+        return
+
+    if game_active and text == "منصب":
+        if uid in user_roles:
+            previous_role = user_roles[uid]
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text=f"لك تم إعطاؤك منصبك: {previous_role}"))
+            return
+        else:
             try:
                 profile = line_bot_api.get_profile(uid)
                 name = profile.display_name
-            except Exception:
-                name = "عضو مجهول"
+                pic  = profile.picture_url or "https://i.imgur.com/SAqlVNr.gif"  # ✅ حذف المسافة
+            except:
+                name, pic = "عضو مجهول", "https://i.imgur.com/SAqlVNr.gif"  # ✅ حذف المسافة
+            role = random.choice(ROLES)
+            user_roles[uid] = role
+            send_role_card(event.reply_token, name, pic, role)
+            return
 
-            raffle_participants.setdefault(group_id, set()).add(uid)
-            raffle_names[uid] = name
+    # ====================== لعبة الجائزة السرية ======================
+
+    # 🎁 بدء لعبة الجائزة السرية (Admin فقط)
+    if text.lower() == ".sg" and group_id and uid == ADMIN_USER_ID:
+        secret_game_active[group_id] = True
+        secret_participants[group_id] = []
+        line_bot_api.reply_message(event.reply_token,
+            TextSendMessage(text="🎁 بدأت لعبة الجائزة السرية! اكتب `.sr` لتسجيل اسمك."))
+        return
+
+    # 📝 تسجيل في الجائزة السرية
+    if text.lower() == ".sr" and group_id:
+        if not secret_game_active.get(group_id, False):
             line_bot_api.reply_message(event.reply_token,
-                TextSendMessage(text=f"✅ تم تسجيلك: {name} 🎯"))
-
-            if len(raffle_participants[group_id]) % 3 == 0 and len(raffle_participants[group_id]) > 0:
-                line_bot_api.push_message(group_id,
-                    TextSendMessage(text=f"🎯 {len(raffle_participants[group_id])} شخص سجلوا حتى الآن! من يجرؤ ينافس؟"))
+                TextSendMessage(text="❌ اللعبة مغلقة حاليًا."))
             return
 
-        if game_active and text == "منصب":
-            if uid in user_roles:
-                previous_role = user_roles[uid]
-                line_bot_api.reply_message(event.reply_token,
-                    TextSendMessage(text=f"لك تم إعطاؤك منصبك: {previous_role}"))
-                return
-            else:
-                try:
-                    profile = line_bot_api.get_profile(uid)
-                    name = profile.display_name
-                    pic  = profile.picture_url or "https://i.imgur.com/SAqlVNr.gif"
-                except Exception:
-                    name, pic = "عضو مجهول", "https://i.imgur.com/SAqlVNr.gif"
-                role = random.choice(ROLES)
-                user_roles[uid] = role
-                send_role_card(event.reply_token, name, pic, role)
-                return
-
-        # ===== لعبة الجائزة السرية =====
-        if text.lower() == ".sg" and group_id and uid == ADMIN_USER_ID:
-            secret_game_active[group_id] = True
-            secret_participants[group_id] = []
-            line_bot_api.reply_message(event.reply_token,
-                TextSendMessage(text="🎁 بدأت لعبة الجائزة السرية! اكتب `.sr` لتسجيل اسمك."))
-            return
-
-        if text.lower() == ".sr" and group_id:
-            if not secret_game_active.get(group_id, False):
-                line_bot_api.reply_message(event.reply_token,
-                    TextSendMessage(text="❌ اللعبة مغلقة حاليًا."))
-                return
-
-            try:
-                profile = line_bot_api.get_profile(uid)
-                name = profile.display_name
-            except Exception:
-                name = "عضو مجهول"
-
-            if name in secret_participants.get(group_id, []):
-                line_bot_api.reply_message(event.reply_token,
-                    TextSendMessage(text="✅ أنت مسجل مسبقًا!"))
-                return
-
-            secret_participants[group_id].append(name)
-            line_bot_api.reply_message(event.reply_token,
-                TextSendMessage(text=f"✅ تم تسجيلك: {name} 🎁"))
-            return
-
-        if text.lower() == ".srr" and group_id:
-            participants = secret_participants.get(group_id, [])
-            if not participants:
-                line_bot_api.reply_message(event.reply_token,
-                    TextSendMessage(text=".FileNotFoundException: الملف غير موجود 😏"))
-                return
-            message = "📋 المشاركين:\n" + "\n".join(f"• {name}" for name in participants)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=message))
-            return
-
-        if text.lower() == ".ss" and group_id:
-            participants = secret_participants.get(group_id, [])
-            if not participants:
-                line_bot_api.reply_message(event.reply_token,
-                    TextSendMessage(text=".FileNotFoundException: الملف غير موجود 😏"))
-                return
-
-            winner = random.choice(participants)
-            prize = random.choice(prizes_list)
-            donor = random.choice(donors_list)
-
-            message = f"🎉 مبروك يا {winner}! لقد فزت بـ {prize} مقدمة من {donor} 🎁👑"
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=message))
-
-            secret_game_active.pop(group_id, None)
-            secret_participants.pop(group_id, None)
-            return
-
-    except LineBotApiError as e:
-        logger.error("LINE API error in message handler: %s", e)
-        logger.debug(traceback.format_exc())
         try:
-            line_bot_api.reply_message(event.reply_token,
-                TextSendMessage(text="حدث خطأ في تنفيذ الأمر. الرجاء المحاولة لاحقًا."))
-        except Exception:
-            pass
-    except Exception as e:
-        logger.error("Unexpected error in message handler: %s", e)
-        logger.debug(traceback.format_exc())
-        try:
-            line_bot_api.reply_message(event.reply_token,
-                TextSendMessage(text="خطأ غير متوقع. تواصل مع الأدمن."))
-        except Exception:
-            pass
+            profile = line_bot_api.get_profile(uid)
+            name = profile.display_name
+        except:
+            name = "عضو مجهول"
 
-# ============= نقطة التشغيل المحلية (مفيدة للتشغيل المباشر) ============
+        if name in secret_participants.get(group_id, []):
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text="✅ أنت مسجل مسبقًا!"))
+            return
+
+        secret_participants[group_id].append(name)
+        line_bot_api.reply_message(event.reply_token,
+            TextSendMessage(text=f"✅ تم تسجيلك: {name} 🎁"))
+        return
+
+    # 📋 عرض المشاركين في الجائزة السرية
+    if text.lower() == ".srr" and group_id:
+        participants = secret_participants.get(group_id, [])
+        if not participants:
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text=".FileNotFoundException: الملف غير موجود 😏"))
+            return
+        message = "📋 المشاركين:\n" + "\n".join(f"• {name}" for name in participants)
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=message))
+        return
+
+    # 🏆 اختيار الفائز في الجائزة السرية
+    if text.lower() == ".ss" and group_id:
+        participants = secret_participants.get(group_id, [])
+        if not participants:
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text=".FileNotFoundException: الملف غير موجود 😏"))
+            return
+
+        winner = random.choice(participants)
+        prize = random.choice(prizes_list)
+        donor = random.choice(donors_list)
+
+        message = f"🎉 مبروك يا {winner}! لقد فزت بـ {prize} مقدمة من {donor} 🎁👑"
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=message))
+
+        # إعادة ضبط اللعبة
+        secret_game_active.pop(group_id, None)
+        secret_participants.pop(group_id, None)
+        return
+
+    # ====================== مراقبة الدخول ======================
+
+    # ✅ تفعيل المراقبة (Admin فقط)
+    if text.lower() == ".l" and group_id and uid == ADMIN_USER_ID:
+        lurking_active[group_id] = True
+        line_bot_api.reply_message(event.reply_token,
+            TextSendMessage(text="✅ بدأت مراقبة دخول الأعضاء!"))
+        return
+
+    # ✅ إيقاف المراقبة (Admin فقط)
+    if text.lower() == ".sl" and group_id and uid == ADMIN_USER_ID:
+        lurking_active[group_id] = False
+        line_bot_api.reply_message(event.reply_token,
+            TextSendMessage(text="❌ توقفت مراقبة دخول الأعضاء."))
+        return
+
+    # ✅ عرض قائمة المراقبين
+    if text.lower() == ".lurkers" and group_id:
+        lurkers = lurkers_list.get(group_id, [])
+        if not lurkers:
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text="❌ مافيه أحد مسجل!"))
+            return
+        message = "🕵️‍♂️ Lurkers:\n" + "\n".join(f"{i+1}. {name}" for i, name in enumerate(lurkers))
+        line_bot_api.reply_message(event.reply_token,
+            TextSendMessage(text=message))
+        return
+
+# ============= نقطة التشغيل =============
 if __name__ == "__main__":
-    # تشغيل التطبيق محلياً باستخدام Flask (مناسب للاختبار)
-    port = int(os.environ.get("PORT", 5000))
-    logger.info("Starting Flask app on 0.0.0.0:%s", port)
-    # scheduler قد تم تشغيله عند الاستيراد، لكن إن لم يكن قيد التشغيل نحاول تشغيله مرة أخرى
-    if not scheduler.running:
-        try:
-            start_scheduler()
-        except Exception as e:
-            logger.error("Error starting scheduler at __main__: %s", e)
-    app.run(host="0.0.0.0", port=port)
+    app.run(port=5000, host="0.0.0.0")
