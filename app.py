@@ -86,6 +86,12 @@ prizes_list = [
 lurking_active = {}  # group_id -> bool
 lurkers_list = {}    # group_id -> list of names
 
+# ===== متغيرات لعبة "تحضير الحرب" =====
+war_active = {}              # group_id -> bool
+war_participants = {}        # group_id -> set of user_ids (المشاركون)
+war_absentees = {}           # group_id -> set of user_ids (المعتذرون)
+war_names = {}               # user_id -> display_name (لعرض الأسماء لاحقًا)
+
 # ============= دالة بطاقة المناصب (معدلة - صورة دائرية بتلميع وإطار ذهبي) =============
 def send_role_card(reply_token, name, profile_pic, role):
     bg_url = "https://i.imgur.com/SAqlVNr.gif"  # ✅ تم حذف المسافة
@@ -248,7 +254,7 @@ def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
                 "contents": [
                     {
                         "type": "image",
-                        "url": "https://i.imgur.com/SAqlVNr.gif",  # ✅ حذف المسافة
+                        "url": "https://i.imgur.com/SAqlVNr.gif",
                         "size": "full",
                         "aspectMode": "cover",
                         "position": "absolute",
@@ -406,7 +412,7 @@ def send_raffle_card(reply_token, group_id):
                 "contents": [
                     {
                         "type": "image",
-                        "url": "https://i.imgur.com/SAqlVNr.gif",  # ✅ حذف المسافة
+                        "url": "https://i.imgur.com/SAqlVNr.gif",
                         "size": "full",
                         "aspectMode": "cover",
                         "position": "absolute",
@@ -462,6 +468,110 @@ def send_raffle_card(reply_token, group_id):
                                 "style": "primary",
                                 "color": "#000000",  # ✅ لون أسود الآن
                                 "margin": "xl"
+                            },
+                            {
+                                "type": "text",
+                                "text": "👑560👑",
+                                "size": "xs",
+                                "align": "center",
+                                "color": "#FFFFFFDD",
+                                "margin": "xl"
+                            }
+                        ],
+                        "position": "relative",
+                        "paddingAll": "24px",
+                        "justifyContent": "center",
+                        "alignItems": "center",
+                        "backgroundColor": "#00000000"
+                    }
+                ],
+                "paddingAll": "0px",
+                "backgroundColor": "#00000000"
+            }
+        }
+    )
+    line_bot_api.reply_message(reply_token, flex)
+
+# ============= دالة بطاقة "تحضير الحرب" =============
+def send_war_card(reply_token, group_id):
+    flex = FlexSendMessage(
+        alt_text="⚔️ تحضير الحرب!",
+        contents={
+            "type": "bubble",
+            "size": "kilo",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {
+                        "type": "image",
+                        "url": "https://i.imgur.com/SAqlVNr.gif",
+                        "size": "full",
+                        "aspectMode": "cover",
+                        "position": "absolute",
+                        "offsetTop": "0px",
+                        "offsetBottom": "0px",
+                        "offsetStart": "0px",
+                        "offsetEnd": "0px",
+                        "flex": 1,
+                        "opacity": "0.5"
+                    },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "contents": [],
+                        "borderWidth": "4px",
+                        "borderColor": "#FF0000",
+                        "cornerRadius": "32px",
+                        "position": "absolute",
+                        "offsetTop": "8px",
+                        "offsetBottom": "8px",
+                        "offsetStart": "8px",
+                        "offsetEnd": "8px"
+                    },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "contents": [
+                            {
+                                "type": "text",
+                                "text": "⚔️ تحضير الحرب!",
+                                "weight": "bold",
+                                "size": "lg",
+                                "align": "center",
+                                "color": "#FFFFFF",
+                                "margin": "xxl"
+                            },
+                            {
+                                "type": "text",
+                                "text": "اختر دورك في المعركة:",
+                                "size": "md",
+                                "align": "center",
+                                "color": "#FFFFE0",
+                                "margin": "md",
+                                "wrap": True
+                            },
+                            {
+                                "type": "button",
+                                "action": {
+                                    "type": "message",
+                                    "label": "🛡️ سجلني مشارك في الحرب",
+                                    "text": "war_join"
+                                },
+                                "style": "primary",
+                                "color": "#8B0000",
+                                "margin": "lg"
+                            },
+                            {
+                                "type": "button",
+                                "action": {
+                                    "type": "message",
+                                    "label": "🏰 غير متواجد، سلمو قلعتي",
+                                    "text": "war_absent"
+                                },
+                                "style": "secondary",
+                                "color": "#000000",
+                                "margin": "sm"
                             },
                             {
                                 "type": "text",
@@ -600,9 +710,9 @@ def handle_message(event):
         try:
             profile = line_bot_api.get_profile(uid)
             mentioner_name = profile.display_name
-            mentioner_pic = profile.picture_url or "https://i.imgur.com/SAqlVNr.gif"  # ✅ حذف المسافة
+            mentioner_pic = profile.picture_url or "https://i.imgur.com/SAqlVNr.gif"
         except:
-            mentioner_name, mentioner_pic = "عضو مجهول", "https://i.imgur.com/SAqlVNr.gif"  # ✅ حذف المسافة
+            mentioner_name, mentioner_pic = "عضو مجهول", "https://i.imgur.com/SAqlVNr.gif"
         send_admin_mention_card(event.reply_token, mentioner_name, mentioner_pic)
         return
 
@@ -710,9 +820,9 @@ def handle_message(event):
             try:
                 profile = line_bot_api.get_profile(uid)
                 name = profile.display_name
-                pic  = profile.picture_url or "https://i.imgur.com/SAqlVNr.gif"  # ✅ حذف المسافة
+                pic  = profile.picture_url or "https://i.imgur.com/SAqlVNr.gif"
             except:
-                name, pic = "عضو مجهول", "https://i.imgur.com/SAqlVNr.gif"  # ✅ حذف المسافة
+                name, pic = "عضو مجهول", "https://i.imgur.com/SAqlVNr.gif"
             role = random.choice(ROLES)
             user_roles[uid] = role
             send_role_card(event.reply_token, name, pic, role)
@@ -808,6 +918,110 @@ def handle_message(event):
         message = "🕵️‍♂️ Lurkers:\n" + "\n".join(f"{i+1}. {name}" for i, name in enumerate(lurkers))
         line_bot_api.reply_message(event.reply_token,
             TextSendMessage(text=message))
+        return
+
+    # ====================== لعبة "تحضير الحرب" ======================
+
+    # 🛡️ بدء لعبة الحرب (Admin فقط)
+    if text.lower() == ".war" and group_id and uid == ADMIN_USER_ID:
+        war_active[group_id] = True
+        # تأكد من وجود القوائم حتى لو فارغة
+        if group_id not in war_participants:
+            war_participants[group_id] = set()
+        if group_id not in war_absentees:
+            war_absentees[group_id] = set()
+        send_war_card(event.reply_token, group_id)
+        return
+
+    # 📋 عرض نتائج الحرب (المشاركين + المعتذرين)
+    if text.lower() == ".war r" and group_id:
+        participants = war_participants.get(group_id, set())
+        absentees = war_absentees.get(group_id, set())
+
+        msg = "⚔️ تحضير الحرب:\n\n"
+
+        # المشاركين
+        if participants:
+            names_part = [war_names.get(u, "مجهول") for u in participants]
+            msg += "المشاركين بالحرب ⚔️:\n"
+            msg += "\n".join(f"{i+1}- {name}" for i, name in enumerate(names_part))
+        else:
+            msg += "المشاركين بالحرب ⚔️:\n(لا أحد حتى الآن)"
+
+        msg += "\n\n"
+
+        # المعتذرون
+        if absentees:
+            names_abs = [war_names.get(u, "مجهول") for u in absentees]
+            msg += "الغير مشاركين ويعتذرون عن الحرب (سلمو قلاعهم) 🏰:\n"
+            msg += "\n".join(f"{i+1}- {name}" for i, name in enumerate(names_abs))
+        else:
+            msg += "الغير مشاركين ويعتذرون عن الحرب (سلمو قلاعهم) 🏰:\n(لا أحد حتى الآن)"
+
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
+        return
+
+    # 🛑 إيقاف لعبة الحرب وتجديدها (Admin فقط)
+    if text.lower() == ".war s" and group_id and uid == ADMIN_USER_ID:
+        war_active[group_id] = False
+        war_participants.pop(group_id, None)
+        war_absentees.pop(group_id, None)
+        line_bot_api.reply_message(event.reply_token,
+            TextSendMessage(text="🛑 تم إيقاف لعبة الحرب وتجديدها!"))
+        return
+
+    # ✅ معالجة الضغط على "سجلني مشارك في الحرب"
+    if text == "war_join" and group_id:
+        if not war_active.get(group_id, False):
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text="❌ التسجيل في الحرب مغلق حاليًا."))
+            return
+
+        try:
+            profile = line_bot_api.get_profile(uid)
+            name = profile.display_name
+        except:
+            name = "عضو مجهول"
+
+        war_names[uid] = name
+
+        # أزله من المعتذرين إذا كان موجودًا
+        if group_id in war_absentees and uid in war_absentees[group_id]:
+            war_absentees[group_id].remove(uid)
+
+        # أضفه للمشاركين
+        war_participants.setdefault(group_id, set()).add(uid)
+
+        line_bot_api.reply_message(event.reply_token,
+            TextSendMessage(text=f"🛡️ تم تسجيلك كـ **مشارك في الحرب**: {name}!"))
+
+        return
+
+    # ✅ معالجة الضغط على "غير متواجد، سلمو قلعتي"
+    if text == "war_absent" and group_id:
+        if not war_active.get(group_id, False):
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text="❌ التسجيل في الحرب مغلق حاليًا."))
+            return
+
+        try:
+            profile = line_bot_api.get_profile(uid)
+            name = profile.display_name
+        except:
+            name = "عضو مجهول"
+
+        war_names[uid] = name
+
+        # أزله من المشاركين إذا كان موجودًا
+        if group_id in war_participants and uid in war_participants[group_id]:
+            war_participants[group_id].remove(uid)
+
+        # أضفه للمعتذرين
+        war_absentees.setdefault(group_id, set()).add(uid)
+
+        line_bot_api.reply_message(event.reply_token,
+            TextSendMessage(text=f"🏰 تم تسجيلك كـ **معتذر عن الحرب**: {name}. سلمت قلعتك!"))
+
         return
 
 # ============= نقطة التشغيل =============
