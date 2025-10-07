@@ -492,7 +492,7 @@ def send_raffle_card(reply_token, group_id):
     )
     line_bot_api.reply_message(reply_token, flex)
 
-# ============= دالة بطاقة "تحضير الحرب" =============
+# ============= دالة بطاقة "تحضير الحرب" (مُحسَّنة - ألوان زاهية وواضحة) =============
 def send_war_card(reply_token, group_id):
     flex = FlexSendMessage(
         alt_text="⚔️ تحضير الحرب!",
@@ -514,20 +514,21 @@ def send_war_card(reply_token, group_id):
                         "offsetStart": "0px",
                         "offsetEnd": "0px",
                         "flex": 1,
-                        "opacity": "0.5"
+                        "opacity": "0.2"
                     },
                     {
                         "type": "box",
                         "layout": "vertical",
                         "contents": [],
                         "borderWidth": "4px",
-                        "borderColor": "#FF0000",
+                        "borderColor": "#4A90E2",
                         "cornerRadius": "32px",
                         "position": "absolute",
                         "offsetTop": "8px",
                         "offsetBottom": "8px",
                         "offsetStart": "8px",
-                        "offsetEnd": "8px"
+                        "offsetEnd": "8px",
+                        "backgroundColor": "#FFFFFFEE"
                     },
                     {
                         "type": "box",
@@ -539,7 +540,7 @@ def send_war_card(reply_token, group_id):
                                 "weight": "bold",
                                 "size": "lg",
                                 "align": "center",
-                                "color": "#FFFFFF",
+                                "color": "#2C3E50",
                                 "margin": "xxl"
                             },
                             {
@@ -547,7 +548,7 @@ def send_war_card(reply_token, group_id):
                                 "text": "اختر دورك في المعركة:",
                                 "size": "md",
                                 "align": "center",
-                                "color": "#FFFFE0",
+                                "color": "#555555",
                                 "margin": "md",
                                 "wrap": True
                             },
@@ -559,7 +560,7 @@ def send_war_card(reply_token, group_id):
                                     "text": "war_join"
                                 },
                                 "style": "primary",
-                                "color": "#8B0000",
+                                "color": "#E74C3C",  # أحمر ناري زاهٍ
                                 "margin": "lg"
                             },
                             {
@@ -569,8 +570,8 @@ def send_war_card(reply_token, group_id):
                                     "label": "🏰 غير متواجد، سلمو قلعتي",
                                     "text": "war_absent"
                                 },
-                                "style": "secondary",
-                                "color": "#000000",
+                                "style": "primary",
+                                "color": "#F1C40F",  # ذهبي زاهٍ
                                 "margin": "sm"
                             },
                             {
@@ -578,7 +579,7 @@ def send_war_card(reply_token, group_id):
                                 "text": "👑560👑",
                                 "size": "xs",
                                 "align": "center",
-                                "color": "#FFFFFFDD",
+                                "color": "#7F8C8D",
                                 "margin": "xl"
                             }
                         ],
