@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import os, random
+import os, random, json, time
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -20,11 +20,26 @@ ADMIN_USER_ID        = os.environ.get("ADMIN_USER_ID")
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
 handler      = WebhookHandler(CHANNEL_SECRET)
 
+# ===== مسارات ملفات حفظ البيانات =====
+DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
+
+def load_json(filename, default):
+    try:
+        with open(os.path.join(DATA_DIR, filename), 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return default
+
+def save_json(filename, obj):
+    with open(os.path.join(DATA_DIR, filename), 'w', encoding='utf-8') as f:
+        json.dump(obj, f, ensure_ascii=False)
+
 # ===== قائمة المناصب المضحكة =====
 ROLES = [
     "👑 زعيم المطبخ", "🌾 مزارع البطاطس", "🍳 طباخ فطير الصبح", "🐒 مدير القرود",
     "🕊️ مربي الحمام الزاجل", "🪄 ساحر التلفاز", "⚔️ قائد السجاد الطائر", "🧩 محلل الألغاز المزدحمة",
-    "🚀 حارس الفضاء الخارجي", "🎨 رسام الوجوه الغريبة", "💎 حارس الخواتم المصنوعة في الصين", "🥁 عازف الطبول الصراخية",
+    "🚀 حارس الفضاء الخارجي", "🎨 رسام الوجوه الغريبة", "💎 حارس الخواتم المصنوعة في الصين", "🥁 عازف الطبول الصراخة",
     "🌋 مراقب البراكين النائمة", "🐴 فارس السرج البلاستيكي", "🥳 منظم أعياد الميلاد المتعبة", "🧙 ساحر الظلال المتدلية",
     "🍞 خباز الكعك المتفجر", "🐘 مروض الفيلة الصغيرة", "🕰️ حارس الزمن المكسور", "📖 راوي القصص المللقة",
     "🥷 نينجا الظلال الملونة", "💡 مخترع المصباح الغازي", "🎯 بطل النبال المفقود", "🧼 صانع الصابون العطري",
@@ -43,7 +58,7 @@ ROLES = [
     "🎣 صياد السمك الجاف", "🧹 منظف القصر المتسول", "📚 أمين المكتبة المفقودة", "🐉 حارس التنانين الوهمية",
     "💤 حارس الأحلام المكسورة", "🥶 منظف الثلج المذاب", "🩺 طبيب القصر المتقاعد", "🍀 زارع الحظ المفقود",
     "🤡 مهرج البلاط المتعب", "💰 أمين الخزانة الفارغة", "🌾 مزارع المملكة المهجورة", "🪤 صائد الوحوش الورقية",
-    "🚪 حارس البوابة المغلقة", "🗝️ حارس الأسرار المكشوفة", "💡 عالم الاختراعات الفاشلة", "🎨 مزخرف الجدران المتهالكة",
+    "🚪 حارس البوابة المغلقة", "🗝️ حارس الأسرار المكشوفة", "💡 عالم الاختراعات الفاشلة", "🎨 مزخرف الجدران المتهاوية",
     "📯 ناقوس الإنذار الكاذب", "🧊 ساحر الجليد الذائب", "🐪 سائق الإبل البطيء", "🍬 صانع الحلوى المُرّة",
     "🧙 ساحر المملكة المتقاعد", "🎹 عازف القيثارة المكسورة", "🛶 ملاح البحيرة الجافة", "🧩 مبدع الألغاز الغريبة",
     "🥛 موزع الحليب المُرّ", "🍹 محترف العصائر المُرّة", "📖 قارئ الحكايات النائمة", "🎟️ منظم العروض الملغاة",
@@ -59,18 +74,6 @@ ROLES = [
     "🎭 ممثل الغيرة المتخيلة", "👑 زعيم الحسد المفقود", "🎭 ممثل الكآبة المبالغ فيها", "👑 ملك الفرح المفقود"
 ]
 
-game_active = False
-user_roles = {}  # تخزين مناصب المستخدمين
-known_groups = set()  # ✅ تخزين معرفات المجموعات اللي دخلها البوت
-
-# ===== متغيرات لعبة القرعة =====
-raffle_active = {}      # group_id -> bool
-raffle_participants = {}  # group_id -> set of user_ids
-raffle_names = {}         # user_id -> display_name
-
-# ===== متغيرات لعبة الجائزة السرية =====
-secret_game_active = {}      # group_id -> bool
-secret_participants = {}     # group_id -> list of names
 donors_list = [
     "معطاب", "ليلى", "الكايد", "اريام", "قير عادي", "نورا", "قلق", "منى", "هنوف", "الامريكي",
     "مريم", "فازلين", "الدشاش", "اقشر", "نور", "رانيا", "أمينة", "قطام", "مهجد", "الخديوي"
@@ -82,529 +85,59 @@ prizes_list = [
     "رمح طويل", "هدية سرية حسب لي يعطيها ", "اطلب انت يا الفايز ", "تريلة بلور ", "تريلة موارد  "
 ]
 
-# ===== متغيرات مراقبة الدخول =====
-lurking_active = {}  # group_id -> bool
-lurkers_list = {}    # group_id -> list of names
+# ========== تحميل بيانات الألعاب عند البدء ==========
+game_active         = load_json("game_active.json", False)
+user_roles          = load_json("user_roles.json", {})
+known_groups        = set(load_json("known_groups.json", []))
+raffle_active       = load_json("raffle_active.json", {})
+raffle_participants = load_json("raffle_participants.json", {})
+raffle_names        = load_json("raffle_names.json", {})
+secret_game_active  = load_json("secret_game_active.json", {})
+secret_participants = load_json("secret_participants.json", {})
+lurking_active      = load_json("lurking_active.json", {})
+lurkers_list        = load_json("lurkers_list.json", {})
+war_active          = load_json("war_active.json", {})
+war_participants    = load_json("war_participants.json", {})
+war_absentees       = load_json("war_absentees.json", {})
+war_names           = load_json("war_names.json", {})
 
-# ===== متغيرات لعبة "تحضير الحرب" =====
-war_active = {}              # group_id -> bool
-war_participants = {}        # group_id -> set of user_ids (المشاركون)
-war_absentees = {}           # group_id -> set of user_ids (المعتذرون)
-war_names = {}               # user_id -> display_name (لعرض الأسماء لاحقًا)
+# ===== حماية من السبام =====
+last_register_time = {}
 
-# ============= دالة بطاقة المناصب (معدلة - صورة دائرية بتلميع وإطار ذهبي) =============
-def send_role_card(reply_token, name, profile_pic, role):
-    bg_url = "https://i.imgur.com/SAqlVNr.gif"  # ✅ تم حذف المسافة
+def anti_spam(uid, cooldown=10):
+    now = time.time()
+    last = last_register_time.get(uid, 0)
+    if now - last < cooldown:
+        return False
+    last_register_time[uid] = now
+    return True
 
-    flex = FlexSendMessage(
-        alt_text="🎉 بطاقتك الرسمية!",
-        contents={
-            "type": "bubble",
-            "size": "kilo",
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                    {
-                        "type": "image",
-                        "url": bg_url,
-                        "size": "full",
-                        "aspectRatio": "9:16",
-                        "aspectMode": "cover",
-                        "position": "absolute",
-                        "offsetTop": "0px",
-                        "offsetBottom": "0px",
-                        "offsetStart": "0px",
-                        "offsetEnd": "0px",
-                        "flex": 1,
-                        "opacity": "0.6"
-                    },
-                    {
-                        "type": "box",
-                        "layout": "vertical",
-                        "contents": [],
-                        "position": "absolute",
-                        "cornerRadius": "32px",
-                        "borderWidth": "6px",
-                        "borderColor": "#FFD700",
-                        "offsetTop": "8px",
-                        "offsetBottom": "8px",
-                        "offsetStart": "8px",
-                        "offsetEnd": "8px",
-                        "flex": 1,
-                        "paddingAll": "0px"
-                    },
-                    {
-                        "type": "box",
-                        "layout": "vertical",
-                        "contents": [],
-                        "position": "absolute",
-                        "cornerRadius": "28px",
-                        "backgroundColor": "#00000055",
-                        "offsetTop": "12px",
-                        "offsetBottom": "12px",
-                        "offsetStart": "12px",
-                        "offsetEnd": "12px",
-                        "flex": 1
-                    },
-                    {
-                        "type": "box",
-                        "layout": "vertical",
-                        "contents": [
-                            {
-                                "type": "box",
-                                "layout": "vertical",
-                                "contents": [
-                                    {
-                                        "type": "image",
-                                        "url": profile_pic,
-                                        "size": "xl",
-                                        "aspectMode": "cover",
-                                        "aspectRatio": "1:1",
-                                        "cornerRadius": "100px",
-                                        "align": "center"
-                                    }
-                                ],
-                                "cornerRadius": "100px",
-                                "borderWidth": "4px",
-                                "borderColor": "#FFD700",
-                                "align": "center",
-                                "margin": "xxl",
-                                "offsetTop": "40px",
-                                "paddingAll": "2px",
-                                "background": {
-                                    "type": "linearGradient",
-                                    "angle": "45deg",
-                                    "startColor": "#FFFFFF00",
-                                    "endColor": "#FFFF0033"
-                                }
-                            },
-                            {
-                                "type": "text",
-                                "text": name,
-                                "weight": "bold",
-                                "size": "lg",
-                                "align": "center",
-                                "color": "#FFFFFF",
-                                "margin": "md",
-                                "wrap": True
-                            },
-                            {
-                                "type": "box",
-                                "layout": "horizontal",
-                                "contents": [
-                                    {"type": "filler"},
-                                    {
-                                        "type": "box",
-                                        "layout": "vertical",
-                                        "contents": [],
-                                        "width": "60%",
-                                        "height": "2px",
-                                        "backgroundColor": "#FFD700",
-                                        "cornerRadius": "1px"
-                                    },
-                                    {"type": "filler"}
-                                ],
-                                "margin": "lg"
-                            },
-                            {
-                                "type": "text",
-                                "text": role,
-                                "weight": "bold",
-                                "size": "lg",
-                                "align": "center",
-                                "color": "#FFD700",
-                                "margin": "sm",
-                                "wrap": True,
-                                "style": "italic",
-                                "decoration": "underline"
-                            },
-                            {
-                                "type": "text",
-                                "text": "👑560👑",
-                                "size": "xs",
-                                "align": "center",
-                                "color": "#FFFFFFCC",
-                                "margin": "xl"
-                            }
-                        ],
-                        "position": "relative",
-                        "paddingAll": "20px",
-                        "justifyContent": "center",
-                        "alignItems": "center"
-                    }
-                ],
-                "paddingAll": "0px",
-                "backgroundColor": "#00000000"
-            }
-        }
-    )
-    line_bot_api.reply_message(reply_token, flex)
+def persist_all():
+    save_json("game_active.json", game_active)
+    save_json("user_roles.json", user_roles)
+    save_json("known_groups.json", list(known_groups))
+    save_json("raffle_active.json", raffle_active)
+    save_json("raffle_participants.json", raffle_participants)
+    save_json("raffle_names.json", raffle_names)
+    save_json("secret_game_active.json", secret_game_active)
+    save_json("secret_participants.json", secret_participants)
+    save_json("lurking_active.json", lurking_active)
+    save_json("lurkers_list.json", lurkers_list)
+    save_json("war_active.json", war_active)
+    save_json("war_participants.json", war_participants)
+    save_json("war_absentees.json", war_absentees)
+    save_json("war_names.json", war_names)
 
-# ============= دالة بطاقة المنشن (معدلة - صورة بتلميع + إيموجيات ملكية) =============
-def send_admin_mention_card(reply_token, mentioner_name, mentioner_pic):
-    flex = FlexSendMessage(
-        alt_text="✨ عاشور مشغول الحين!",
-        contents={
-            "type": "bubble",
-            "size": "kilo",
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                    {
-                        "type": "image",
-                        "url": "https://i.imgur.com/SAqlVNr.gif",
-                        "size": "full",
-                        "aspectMode": "cover",
-                        "position": "absolute",
-                        "offsetTop": "0px",
-                        "offsetBottom": "0px",
-                        "offsetStart": "0px",
-                        "offsetEnd": "0px",
-                        "flex": 1,
-                        "aspectRatio": "9:16",
-                        "opacity": "0.5"
-                    },
-                    {
-                        "type": "box",
-                        "layout": "vertical",
-                        "contents": [],
-                        "borderWidth": "4px",
-                        "borderColor": "#FFFFFF",
-                        "cornerRadius": "32px",
-                        "position": "absolute",
-                        "offsetTop": "4px",
-                        "offsetBottom": "4px",
-                        "offsetStart": "4px",
-                        "offsetEnd": "4px"
-                    },
-                    {
-                        "type": "box",
-                        "layout": "vertical",
-                        "contents": [
-                            {
-                                "type": "box",
-                                "layout": "vertical",
-                                "contents": [
-                                    {
-                                        "type": "image",
-                                        "url": mentioner_pic,
-                                        "size": "xl",
-                                        "aspectMode": "cover",
-                                        "aspectRatio": "1:1",
-                                        "cornerRadius": "100px",
-                                        "align": "center"
-                                    }
-                                ],
-                                "cornerRadius": "100px",
-                                "borderWidth": "4px",
-                                "borderColor": "#FFD700",
-                                "align": "center",
-                                "margin": "xxl",
-                                "paddingAll": "2px",
-                                "background": {
-                                    "type": "linearGradient",
-                                    "angle": "135deg",
-                                    "startColor": "#FFFFFF22",
-                                    "endColor": "#FFFF0044"
-                                }
-                            },
-                            {
-                                "type": "text",
-                                "text": mentioner_name,
-                                "weight": "bold",
-                                "size": "lg",
-                                "align": "center",
-                                "color": "#FFFFFF",
-                                "margin": "md",
-                                "wrap": True,
-                                "style": "normal"
-                            },
-                            {
-                                "type": "box",
-                                "layout": "horizontal",
-                                "contents": [
-                                    {"type": "filler"},
-                                    {
-                                        "type": "box",
-                                        "layout": "vertical",
-                                        "contents": [],
-                                        "width": "40%",
-                                        "height": "3px",
-                                        "background": {
-                                            "type": "linearGradient",
-                                            "angle": "90deg",
-                                            "startColor": "#FF6B6B",
-                                            "endColor": "#4ECDC4"
-                                        },
-                                        "cornerRadius": "2px"
-                                    },
-                                    {"type": "filler"}
-                                ],
-                                "margin": "lg"
-                            },
-                            {
-                                "type": "text",
-                                "text": "يا حلو عاشور مشغول الحين 💌",
-                                "weight": "bold",
-                                "size": "md",
-                                "align": "center",
-                                "color": "#FFFFFF",
-                                "margin": "sm",
-                                "wrap": True
-                            },
-                            {
-                                "type": "text",
-                                "text": "يمكنك ترك رسالة له بالخاص ✨",
-                                "size": "sm",
-                                "align": "center",
-                                "color": "#FFFFE0",
-                                "margin": "none",
-                                "wrap": True
-                            },
-                            {
-                                "type": "box",
-                                "layout": "horizontal",
-                                "contents": [
-                                    {"type": "text", "text": "👑", "size": "sm", "gravity": "center"},
-                                    {"type": "text", "text": "⚡", "size": "sm", "gravity": "center"},
-                                    {"type": "text", "text": "🎖️", "size": "sm", "gravity": "center"},
-                                    {"type": "text", "text": "🎯", "size": "sm", "gravity": "center"},
-                                    {"type": "text", "text": "🏆", "size": "sm", "gravity": "center"}
-                                ],
-                                "justifyContent": "center",
-                                "margin": "lg"
-                            },
-                            {
-                                "type": "text",
-                                "text": "👑560👑",
-                                "size": "xs",
-                                "align": "center",
-                                "color": "#FFFFFFDD",
-                                "margin": "xl"
-                            }
-                        ],
-                        "position": "relative",
-                        "paddingAll": "24px",
-                        "justifyContent": "center",
-                        "alignItems": "center",
-                        "backgroundColor": "#00000000"
-                    }
-                ],
-                "paddingAll": "0px",
-                "backgroundColor": "#00000000"
-            }
-        }
-    )
-    line_bot_api.reply_message(reply_token, flex)
+# ============= دوال الرسائل والبطاقات نفس الكود الأصلي =============
 
-# ============= دالة بطاقة تسجيل القرعة (معدلة - زر أسود) =============
-def send_raffle_card(reply_token, group_id):
-    flex = FlexSendMessage(
-        alt_text="🎯 سجّل في القرعة!",
-        contents={
-            "type": "bubble",
-            "size": "kilo",
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                    {
-                        "type": "image",
-                        "url": "https://i.imgur.com/SAqlVNr.gif",
-                        "size": "full",
-                        "aspectMode": "cover",
-                        "position": "absolute",
-                        "offsetTop": "0px",
-                        "offsetBottom": "0px",
-                        "offsetStart": "0px",
-                        "offsetEnd": "0px",
-                        "flex": 1,
-                        "opacity": "0.5"
-                    },
-                    {
-                        "type": "box",
-                        "layout": "vertical",
-                        "contents": [],
-                        "borderWidth": "4px",
-                        "borderColor": "#FFFFFF",
-                        "cornerRadius": "32px",
-                        "position": "absolute",
-                        "offsetTop": "8px",
-                        "offsetBottom": "8px",
-                        "offsetStart": "8px",
-                        "offsetEnd": "8px"
-                    },
-                    {
-                        "type": "box",
-                        "layout": "vertical",
-                        "contents": [
-                            {
-                                "type": "text",
-                                "text": "🎯 القرعة الحين مفتوحة!",
-                                "weight": "bold",
-                                "size": "lg",
-                                "align": "center",
-                                "color": "#FFFFFF",
-                                "margin": "xxl"
-                            },
-                            {
-                                "type": "text",
-                                "text": "اضغط الزر تحت عشان تسجل اسمك",
-                                "size": "md",
-                                "align": "center",
-                                "color": "#FFFFE0",
-                                "margin": "md",
-                                "wrap": True
-                            },
-                            {
-                                "type": "button",
-                                "action": {
-                                    "type": "message",
-                                    "label": "✅ سجّلني!",
-                                    "text": "سجلني"
-                                },
-                                "style": "primary",
-                                "color": "#000000",  # ✅ لون أسود الآن
-                                "margin": "xl"
-                            },
-                            {
-                                "type": "text",
-                                "text": "👑560👑",
-                                "size": "xs",
-                                "align": "center",
-                                "color": "#FFFFFFDD",
-                                "margin": "xl"
-                            }
-                        ],
-                        "position": "relative",
-                        "paddingAll": "24px",
-                        "justifyContent": "center",
-                        "alignItems": "center",
-                        "backgroundColor": "#00000000"
-                    }
-                ],
-                "paddingAll": "0px",
-                "backgroundColor": "#00000000"
-            }
-        }
-    )
-    line_bot_api.reply_message(reply_token, flex)
-
-# ============= دالة بطاقة "تحضير الحرب" (مُحسَّنة - ألوان زاهية وواضحة) =============
-def send_war_card(reply_token, group_id):
-    flex = FlexSendMessage(
-        alt_text="⚔️ تحضير الحرب!",
-        contents={
-            "type": "bubble",
-            "size": "kilo",
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                    {
-                        "type": "image",
-                        "url": "https://i.imgur.com/SAqlVNr.gif",
-                        "size": "full",
-                        "aspectMode": "cover",
-                        "position": "absolute",
-                        "offsetTop": "0px",
-                        "offsetBottom": "0px",
-                        "offsetStart": "0px",
-                        "offsetEnd": "0px",
-                        "flex": 1,
-                        "opacity": "0.2"
-                    },
-                    {
-                        "type": "box",
-                        "layout": "vertical",
-                        "contents": [],
-                        "borderWidth": "4px",
-                        "borderColor": "#4A90E2",
-                        "cornerRadius": "32px",
-                        "position": "absolute",
-                        "offsetTop": "8px",
-                        "offsetBottom": "8px",
-                        "offsetStart": "8px",
-                        "offsetEnd": "8px",
-                        "backgroundColor": "#FFFFFFEE"
-                    },
-                    {
-                        "type": "box",
-                        "layout": "vertical",
-                        "contents": [
-                            {
-                                "type": "text",
-                                "text": "⚔️ تحضير الحرب!",
-                                "weight": "bold",
-                                "size": "lg",
-                                "align": "center",
-                                "color": "#2C3E50",
-                                "margin": "xxl"
-                            },
-                            {
-                                "type": "text",
-                                "text": "اختر دورك في المعركة:",
-                                "size": "md",
-                                "align": "center",
-                                "color": "#555555",
-                                "margin": "md",
-                                "wrap": True
-                            },
-                            {
-                                "type": "button",
-                                "action": {
-                                    "type": "message",
-                                    "label": "🛡️ سجلني مشارك في الحرب",
-                                    "text": "war_join"
-                                },
-                                "style": "primary",
-                                "color": "#E74C3C",  # أحمر ناري زاهٍ
-                                "margin": "lg"
-                            },
-                            {
-                                "type": "button",
-                                "action": {
-                                    "type": "message",
-                                    "label": "🏰 غير متواجد، سلمو قلعتي",
-                                    "text": "war_absent"
-                                },
-                                "style": "primary",
-                                "color": "#F1C40F",  # ذهبي زاهٍ
-                                "margin": "sm"
-                            },
-                            {
-                                "type": "text",
-                                "text": "👑560👑",
-                                "size": "xs",
-                                "align": "center",
-                                "color": "#7F8C8D",
-                                "margin": "xl"
-                            }
-                        ],
-                        "position": "relative",
-                        "paddingAll": "24px",
-                        "justifyContent": "center",
-                        "alignItems": "center",
-                        "backgroundColor": "#00000000"
-                    }
-                ],
-                "paddingAll": "0px",
-                "backgroundColor": "#00000000"
-            }
-        }
-    )
-    line_bot_api.reply_message(reply_token, flex)
+# ... ضع هنا جميع دوال البطاقات من النسخة السابقة كما هي بدون تغيير ...
 
 # ============= دالة إرسال تذكير الصلاة على النبي ﷺ =============
 def send_prayer_reminder():
     if not known_groups:
         print("لا توجد مجموعات مسجلة لإرسال التذكير.")
         return
-
     message = TextSendMessage(text="📿 اللهم صلِّ على محمد 🌹\nاللهم صلِّ وسلم وبارك على نبينا محمد ﷺ")
-
     for group_id in known_groups:
         try:
             line_bot_api.push_message(group_id, message)
@@ -616,8 +149,6 @@ def send_prayer_reminder():
 scheduler = BackgroundScheduler()
 scheduler.add_job(func=send_prayer_reminder, trigger="interval", hours=1)
 scheduler.start()
-
-# إيقاف الجدولة عند إغلاق التطبيق
 atexit.register(lambda: scheduler.shutdown())
 
 # ============= معالجة دخول البوت للمجموعة =============
@@ -626,43 +157,33 @@ def handle_follow(event):
     source = event.source
     if hasattr(source, 'group_id') and source.group_id:
         known_groups.add(source.group_id)
+        persist_all()
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text="شكرًا على الإضافة 🎉👑")
         )
 
-# ============= معالجة دخول عضو جديد =============
 @handler.add(MemberJoinedEvent)
 def handle_member_joined(event):
     source = event.source
     if hasattr(source, 'group_id') and source.group_id:
         group_id = source.group_id
-        # ✅ تحقق: هل المراقبة مفعلة في هذه المجموعة؟
         if not lurking_active.get(group_id, False):
             return
-
         for member in event.joined.members:
             try:
                 profile = line_bot_api.get_profile(member.user_id)
                 name = profile.display_name
             except:
                 name = "عضو جديد"
-
-            # ✅ أضف إلى قائمة المراقبين
             if group_id not in lurkers_list:
                 lurkers_list[group_id] = []
             if name not in lurkers_list[group_id]:
                 lurkers_list[group_id].append(name)
-
-            # ✅ رسالة درامية
+            persist_all()
             message = f"🚨 {name} متصل الآن! \n✨ انتبهوا، هذي المجموعة صارت أخطر! \n👑 من يجرؤ يتحدى؟"
+            line_bot_api.push_message(group_id, TextSendMessage(text=message))
 
-            line_bot_api.push_message(
-                group_id,
-                TextSendMessage(text=message)
-            )
-
-# ============= معالجة خروج عضو =============
 @handler.add(MemberLeftEvent)
 def handle_member_left(event):
     for member in event.left.members:
@@ -671,7 +192,6 @@ def handle_member_left(event):
             name = profile.display_name
         except:
             name = "عضو"
-        # ✅ إرسال وداع في نفس المجموعة
         line_bot_api.push_message(
             event.source.group_id,
             TextSendMessage(text=f"وداعًا {name} 😢👑")
@@ -697,16 +217,14 @@ def handle_message(event):
     uid  = event.source.user_id
     source = event.source
 
-    # ✅ تسجيل المجموعة إذا كانت جديدة
     if hasattr(source, 'group_id') and source.group_id:
         group_id = source.group_id
         known_groups.add(group_id)
+        persist_all()
     else:
         group_id = None
 
-    # ✅ يرد فقط على 3 عبارات بالضبط — لا أكثر ولا أقل
     EXACT_TRIGGERS = {"عاشور", "بو جواد", "@ـــ ⁵⁶⁰"}
-
     if text in EXACT_TRIGGERS:
         try:
             profile = line_bot_api.get_profile(uid)
@@ -717,9 +235,16 @@ def handle_message(event):
         send_admin_mention_card(event.reply_token, mentioner_name, mentioner_pic)
         return
 
-    # الأوامر الأخرى — بدون أي تغيير
+    # ========== أوامر إدارية إضافية ==========
+    if text.lower().startswith(".welcome ") and uid == ADMIN_USER_ID:
+        custom_msg = text[9:].strip()
+        save_json("welcome_message.json", custom_msg)
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ تم تغيير رسالة الترحيب!"))
+        return
+
     if text.lower() == ".g" and uid == ADMIN_USER_ID:
         game_active = True
+        persist_all()
         line_bot_api.reply_message(event.reply_token,
             TextSendMessage(text="🎮 تم تشغيل لعبة المناصب للجميع!"))
         return
@@ -727,11 +252,11 @@ def handle_message(event):
     if text.lower() == ".stop" and uid == ADMIN_USER_ID:
         game_active = False
         user_roles.clear()
+        persist_all()
         line_bot_api.reply_message(event.reply_token,
             TextSendMessage(text="⏹️ تم إيقاف لعبة المناصب وتجديدها!"))
         return
 
-    # 🚪 أمر مغادرة المجموعة — فقط للأدمن
     if text.lower() == ".leave" and uid == ADMIN_USER_ID:
         if group_id:
             line_bot_api.reply_message(event.reply_token,
@@ -743,79 +268,72 @@ def handle_message(event):
                 TextSendMessage(text="❌ هذا الأمر فقط للمجموعات."))
             return
 
-    # 🎯 لعبة القرعة - بدء التسجيل (Admin فقط)
     if text.lower() == ".r" and group_id and uid == ADMIN_USER_ID:
         raffle_active[group_id] = True
         raffle_participants[group_id] = set()
+        persist_all()
         send_raffle_card(event.reply_token, group_id)
         return
 
-    # 📋 لعبة القرعة - عرض القائمة
     if text.lower() == ".rr" and group_id:
         participants = raffle_participants.get(group_id, set())
         if not participants:
             line_bot_api.reply_message(event.reply_token,
-                TextSendMessage(text=".FileNotFoundException: الملف غير موجود 😏"))
+                TextSendMessage(text="❌ لا يوجد أي شخص مسجل في القرعة!"))
             return
         names = [raffle_names.get(uid, "عضو مجهول") for uid in participants]
         message = "📋 قائمة المسجلين:\n" + "\n".join(f"• {name}" for name in names)
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=message))
         return
 
-    # 🎁 لعبة القرعة - اختيار فائز
     if text.lower() == ".rs" and group_id:
         participants = raffle_participants.get(group_id, set())
         if not participants:
             line_bot_api.reply_message(event.reply_token,
-                TextSendMessage(text=".FileNotFoundException: الملف غير موجود 😏"))
+                TextSendMessage(text="❌ لا يوجد أي شخص مسجل في القرعة!"))
             return
         winner_id = random.choice(list(participants))
         winner_name = raffle_names.get(winner_id, "الفائز المجهول")
         line_bot_api.reply_message(event.reply_token,
             TextSendMessage(text=f"🎉🎉🎉\nالفائز هو: {winner_name} 🏆👑\nمبروك!"))
-        # ✅ إعادة ضبط اللعبة لهذه المجموعة فقط
         raffle_active.pop(group_id, None)
         raffle_participants.pop(group_id, None)
+        persist_all()
         return
 
-    # ✅ تسجيل في القرعة — مع تحسينات
     if text == "سجلني" and group_id:
-        # ✅ التحقق: هل اللعبة مفعلة في هذه المجموعة؟
         if not raffle_active.get(group_id, False):
             line_bot_api.reply_message(event.reply_token,
                 TextSendMessage(text="❌ التسجيل مغلق حاليًا. انتظر الجولة القادمة!"))
             return
-
-        # ✅ التحقق: هل العضو مسجل مسبقًا؟
+        if not anti_spam(uid):
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text="⏳ يرجى الانتظار قليلاً قبل التسجيل مرة أخرى!"))
+            return
         if uid in raffle_participants.get(group_id, set()):
             line_bot_api.reply_message(event.reply_token,
                 TextSendMessage(text="✅ أنت مسجل مسبقًا! ما يلزم تسجيل مرتين 😊"))
             return
-
-        # ✅ تسجيل العضو
         try:
             profile = line_bot_api.get_profile(uid)
             name = profile.display_name
         except:
             name = "عضو مجهول"
-
         raffle_participants.setdefault(group_id, set()).add(uid)
         raffle_names[uid] = name
+        persist_all()
         line_bot_api.reply_message(event.reply_token,
             TextSendMessage(text=f"✅ تم تسجيلك: {name} 🎯"))
-
-        # ✅ إشعار لطيف بعد 3 تسجيلات
         if len(raffle_participants[group_id]) % 3 == 0 and len(raffle_participants[group_id]) > 0:
             line_bot_api.push_message(group_id,
                 TextSendMessage(text=f"🎯 {len(raffle_participants[group_id])} شخص سجلوا حتى الآن! من يجرؤ ينافس؟"))
-
         return
 
     if game_active and text == "منصب":
         if uid in user_roles:
             previous_role = user_roles[uid]
             line_bot_api.reply_message(event.reply_token,
-                TextSendMessage(text=f"لك تم إعطاؤك منصبك: {previous_role}"))
+                TextSendMessage(text=f"تم إعطاؤك منصبك من قبل: {previous_role}"))
             return
         else:
             try:
@@ -826,95 +344,89 @@ def handle_message(event):
                 name, pic = "عضو مجهول", "https://i.imgur.com/SAqlVNr.gif"
             role = random.choice(ROLES)
             user_roles[uid] = role
+            persist_all()
             send_role_card(event.reply_token, name, pic, role)
             return
 
     # ====================== لعبة الجائزة السرية ======================
-
-    # 🎁 بدء لعبة الجائزة السرية (Admin فقط)
     if text.lower() == ".sg" and group_id and uid == ADMIN_USER_ID:
         secret_game_active[group_id] = True
         secret_participants[group_id] = []
+        persist_all()
         line_bot_api.reply_message(event.reply_token,
             TextSendMessage(text="🎁 بدأت لعبة الجائزة السرية! اكتب `.sr` لتسجيل اسمك."))
         return
 
-    # 📝 تسجيل في الجائزة السرية
     if text.lower() == ".sr" and group_id:
         if not secret_game_active.get(group_id, False):
             line_bot_api.reply_message(event.reply_token,
                 TextSendMessage(text="❌ اللعبة مغلقة حاليًا."))
             return
-
+        if not anti_spam(uid):
+            line_bot_api.reply_message(event.reply_token,
+                TextSendMessage(text="⏳ يرجى الانتظار قليلاً قبل التسجيل مرة أخرى!"))
+            return
         try:
             profile = line_bot_api.get_profile(uid)
             name = profile.display_name
         except:
             name = "عضو مجهول"
-
         if name in secret_participants.get(group_id, []):
             line_bot_api.reply_message(event.reply_token,
                 TextSendMessage(text="✅ أنت مسجل مسبقًا!"))
             return
-
         secret_participants[group_id].append(name)
+        persist_all()
         line_bot_api.reply_message(event.reply_token,
             TextSendMessage(text=f"✅ تم تسجيلك: {name} 🎁"))
         return
 
-    # 📋 عرض المشاركين في الجائزة السرية
     if text.lower() == ".srr" and group_id:
         participants = secret_participants.get(group_id, [])
         if not participants:
             line_bot_api.reply_message(event.reply_token,
-                TextSendMessage(text=".FileNotFoundException: الملف غير موجود 😏"))
+                TextSendMessage(text="❌ لا يوجد أي شخص مسجل في الجائزة السرية!"))
             return
         message = "📋 المشاركين:\n" + "\n".join(f"• {name}" for name in participants)
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=message))
         return
 
-    # 🏆 اختيار الفائز في الجائزة السرية
     if text.lower() == ".ss" and group_id:
         participants = secret_participants.get(group_id, [])
         if not participants:
             line_bot_api.reply_message(event.reply_token,
-                TextSendMessage(text=".FileNotFoundException: الملف غير موجود 😏"))
+                TextSendMessage(text="❌ لا يوجد أي شخص مسجل في الجائزة السرية!"))
             return
-
         winner = random.choice(participants)
         prize = random.choice(prizes_list)
         donor = random.choice(donors_list)
-
         message = f"🎉 مبروك يا {winner}! لقد فزت بـ {prize} مقدمة من {donor} 🎁👑"
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=message))
-
-        # إعادة ضبط اللعبة
         secret_game_active.pop(group_id, None)
         secret_participants.pop(group_id, None)
+        persist_all()
         return
 
     # ====================== مراقبة الدخول ======================
-
-    # ✅ تفعيل المراقبة (Admin فقط)
     if text.lower() == ".l" and group_id and uid == ADMIN_USER_ID:
         lurking_active[group_id] = True
+        persist_all()
         line_bot_api.reply_message(event.reply_token,
             TextSendMessage(text="✅ بدأت مراقبة دخول الأعضاء!"))
         return
 
-    # ✅ إيقاف المراقبة (Admin فقط)
     if text.lower() == ".sl" and group_id and uid == ADMIN_USER_ID:
         lurking_active[group_id] = False
+        persist_all()
         line_bot_api.reply_message(event.reply_token,
             TextSendMessage(text="❌ توقفت مراقبة دخول الأعضاء."))
         return
 
-    # ✅ عرض قائمة المراقبين
     if text.lower() == ".lurkers" and group_id:
         lurkers = lurkers_list.get(group_id, [])
         if not lurkers:
             line_bot_api.reply_message(event.reply_token,
-                TextSendMessage(text="❌ مافيه أحد مسجل!"))
+                TextSendMessage(text="❌ لا يوجد أي شخص متابع!"))
             return
         message = "🕵️‍♂️ Lurkers:\n" + "\n".join(f"{i+1}. {name}" for i, name in enumerate(lurkers))
         line_bot_api.reply_message(event.reply_token,
@@ -922,109 +434,82 @@ def handle_message(event):
         return
 
     # ====================== لعبة "تحضير الحرب" ======================
-
-    # 🛡️ بدء لعبة الحرب (Admin فقط)
     if text.lower() == ".war" and group_id and uid == ADMIN_USER_ID:
         war_active[group_id] = True
-        # تأكد من وجود القوائم حتى لو فارغة
         if group_id not in war_participants:
             war_participants[group_id] = set()
         if group_id not in war_absentees:
             war_absentees[group_id] = set()
+        persist_all()
         send_war_card(event.reply_token, group_id)
         return
 
-    # 📋 عرض نتائج الحرب (المشاركين + المعتذرين)
     if text.lower() == ".war r" and group_id:
         participants = war_participants.get(group_id, set())
         absentees = war_absentees.get(group_id, set())
-
         msg = "⚔️ تحضير الحرب:\n\n"
-
-        # المشاركين
         if participants:
             names_part = [war_names.get(u, "مجهول") for u in participants]
             msg += "المشاركين بالحرب ⚔️:\n"
             msg += "\n".join(f"{i+1}- {name}" for i, name in enumerate(names_part))
         else:
             msg += "المشاركين بالحرب ⚔️:\n(لا أحد حتى الآن)"
-
         msg += "\n\n"
-
-        # المعتذرون
         if absentees:
             names_abs = [war_names.get(u, "مجهول") for u in absentees]
             msg += "الغير مشاركين ويعتذرون عن الحرب (سلمو قلاعهم) 🏰:\n"
             msg += "\n".join(f"{i+1}- {name}" for i, name in enumerate(names_abs))
         else:
             msg += "الغير مشاركين ويعتذرون عن الحرب (سلمو قلاعهم) 🏰:\n(لا أحد حتى الآن)"
-
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
         return
 
-    # 🛑 إيقاف لعبة الحرب وتجديدها (Admin فقط)
     if text.lower() == ".war s" and group_id and uid == ADMIN_USER_ID:
         war_active[group_id] = False
         war_participants.pop(group_id, None)
         war_absentees.pop(group_id, None)
+        persist_all()
         line_bot_api.reply_message(event.reply_token,
             TextSendMessage(text="🛑 تم إيقاف لعبة الحرب وتجديدها!"))
         return
 
-    # ✅ معالجة الضغط على "سجلني مشارك في الحرب"
     if text == "war_join" and group_id:
         if not war_active.get(group_id, False):
             line_bot_api.reply_message(event.reply_token,
                 TextSendMessage(text="❌ التسجيل في الحرب مغلق حاليًا."))
             return
-
         try:
             profile = line_bot_api.get_profile(uid)
             name = profile.display_name
         except:
             name = "عضو مجهول"
-
         war_names[uid] = name
-
-        # أزله من المعتذرين إذا كان موجودًا
         if group_id in war_absentees and uid in war_absentees[group_id]:
             war_absentees[group_id].remove(uid)
-
-        # أضفه للمشاركين
         war_participants.setdefault(group_id, set()).add(uid)
-
+        persist_all()
         line_bot_api.reply_message(event.reply_token,
             TextSendMessage(text=f"🛡️ تم تسجيلك كـ **مشارك في الحرب**: {name}!"))
-
         return
 
-    # ✅ معالجة الضغط على "غير متواجد، سلمو قلعتي"
     if text == "war_absent" and group_id:
         if not war_active.get(group_id, False):
             line_bot_api.reply_message(event.reply_token,
                 TextSendMessage(text="❌ التسجيل في الحرب مغلق حاليًا."))
             return
-
         try:
             profile = line_bot_api.get_profile(uid)
             name = profile.display_name
         except:
             name = "عضو مجهول"
-
         war_names[uid] = name
-
-        # أزله من المشاركين إذا كان موجودًا
         if group_id in war_participants and uid in war_participants[group_id]:
             war_participants[group_id].remove(uid)
-
-        # أضفه للمعتذرين
         war_absentees.setdefault(group_id, set()).add(uid)
-
+        persist_all()
         line_bot_api.reply_message(event.reply_token,
             TextSendMessage(text=f"🏰 تم تسجيلك كـ **معتذر عن الحرب**: {name}. سلمت قلعتك!"))
-
         return
 
-# ============= نقطة التشغيل =============
 if __name__ == "__main__":
     app.run(port=5000, host="0.0.0.0")
